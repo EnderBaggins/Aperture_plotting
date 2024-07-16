@@ -326,11 +326,31 @@ class apt_fig:
         if debug.enabled and debug.level <= 1:
             print(f"  Reloaded figure to {num_rows}x{num_columns}, with {len(list(self.plots))+1} subplots")
     
+    def construct_plot_obj(self,key,**kwargs):
+        # default print type for fld obj is colorplot
+        global colorplot
+        func = getattr(self.data, key)
+        name = kwargs.get('name', key)
+        return apt_plot(lambda data: func
+                      , name = name
+                      , plot_function = colorplot
+                      , title = key
+                      , **kwargs)
+    
     def add_plot(self,apt_plot_object,pos=None, **kwargs):
-        #convert string to function
-        ap = apt_plot_object
-        #enforces that apt_plot_object is an apt_plot object
+        global apt_plot_types
+        if isinstance(apt_plot_object, str):
+            # first we check if the str is a data.keys
+            if apt_plot_object in self.data.keys:
+                ap = self.construct_plot_obj(apt_plot_object, **kwargs)
+            elif apt_plot_object in apt_plot_types:
+                ap = apt_plot_types[apt_plot_object](**kwargs)
+        else:
+            ap = apt_plot_object
+            #enforces that apt_plot_object is an apt_plot object
         assert isinstance(ap, apt_plot), "apt_plot_object must be a apt_plot object, try e.g EdotB() not EdotB"
+        
+
         name = ap.name
         #if the plot already exists, raise an error
         if name in self.plots:
@@ -773,14 +793,40 @@ def show_time(fig,dataset,**kwargs):
     return fig
 
 # %%
+
+
+# %%
+
+
+# %%
 #########################################################
+# Here there be the possible plotting types
+apt_plot_types = {} # a dict of possible
+# If you want to add one, you need to add it to this dictionary
+# or else call add_plot(EdotB) as oppossed to add_plot("EdotB")
+
 def EdotB(name='EdotB'):
     return apt_plot(
                      lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3,
                      name = name,
                      plot_function = colorplot,
+                     title = r"$\vec{E} \cdot \vec{B}$",
                      #optional
                      vmin = -1, #default vmin/vmax forthis quantity
                      vmax = 1,
                      )
+apt_plot_types['EdotB'] = EdotB
+
+def Epar(name='Epar'):
+    return apt_plot(
+                     lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3,
+                     name = name,
+                     plot_function = colorplot,
+                     title = r"$\frac{\vec{E} \cdot \vec{B}}{\mathbf{B}}$",
+                     #optional
+                     vmin = -1, #default vmin/vmax forthis quantity
+                     vmax = 1,
+                     )
+apt_plot_types['Epar'] = Epar
+
 
