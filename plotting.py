@@ -60,7 +60,9 @@ class debugging:
 debug = debugging(enabled=False)
 
 # %%
-
+aperture_figure_objects = {}
+# this is all the apt_fig objects that have been created
+# I will need to fix this
 
 # %%
 ################################################################################
@@ -96,7 +98,7 @@ class apt_plot:
             overridden = {k: (self.parameters[k], v) for k, v in kwargs.items() if k in self.parameters and self.parameters[k] != v}
     
             for key, (original_value, new_value) in overridden.items():
-                print(f"Parameter '{key}' was overridden: Original={original_value}, New={new_value}")
+                print(f"    {self.name}'s Parameter '{key}' was overridden: Original = {original_value}, New = {new_value}")
     
         return parameters
 
@@ -172,16 +174,22 @@ class apt_plot:
     '''
     def set_fontsize(self, **kwargs):
         parameters = self.override_params(**kwargs)
-
+        print(f"{self.name} parameters: {parameters}")
         fontsize = parameters.get('fontsize', None)
-        if kwargs.get('fontsize', None) is not None:
-            fontsize = kwargs['fontsize']
         
         #each possible fontsize type with default as the fontsize
         label_fontsize = parameters.get('label_fontsize', fontsize)
         title_fontsize = parameters.get('title_fontsize', fontsize)
         tick_fontsize = parameters.get('tick_fontsize', fontsize)
         legend_fontsize = parameters.get('legend_fontsize', fontsize)
+
+        if debug.enabled and debug.level <= 0:
+            print(f"    Setting fontsize for {self.name}: {fontsize}")
+            print(f"    Label Fontsize: {label_fontsize}")
+            print(f"    Title Fontsize: {title_fontsize}")
+            print(f"    Tick Fontsize: {tick_fontsize}")
+            print(f"    Legend Fontsize: {legend_fontsize}")
+    
 
         #title font size
         self.ax.title.set_fontsize(title_fontsize) if title_fontsize is not None else None
@@ -218,9 +226,21 @@ class apt_plot:
 apt_fig is a one dataset class object storing all the information necessary to plot a figure of subplots
 this will have children objects that will store the information necessary to plot the data of one subplot
 '''
+
 class apt_fig:
-    def __init__(self,data, **kwargs):
-        self.fig = plt.figure()
+    def __init__(self,data, unique_ident= "default_identifier", **kwargs):
+
+        #ensures uniqueness of the object
+        # i.e you can recreate the same object and it overrides the old one
+        global aperture_figure_objects
+        self.unique_ident = unique_ident
+        if aperture_figure_objects.get(unique_ident) is not None:
+            del aperture_figure_objects[unique_ident]
+            if debug.enabled and debug.level <= 2:
+                print(f"Overriding apt_fig \'{unique_ident}\' with new object")
+        aperture_figure_objects[unique_ident] = self
+            
+        self.fig = None
         self.plots = {}        # has axis information inside the class objects
         self.parameters = {}
         self.data = data       #Only one dataset in apt_fig
@@ -245,7 +265,7 @@ class apt_fig:
             overridden = {k: (self.parameters[k], v) for k, v in kwargs.items() if k in self.parameters and self.parameters[k] != v}
     
             for key, (original_value, new_value) in overridden.items():
-                print(f"Parameter '{key}' was overridden: Original={original_value}, New={new_value}")
+                print(f"    Parameter '{key}' was overridden: Original={original_value}, New={new_value}")
     
         return parameters
     
@@ -290,15 +310,17 @@ class apt_fig:
         #copies over the old axes
         for plot in self.plots.values():
             pos = plot.position
+
             new_ax = plt.subplot2grid((num_rows,num_columns),pos,fig= new_fig)
             # setting plot.ax to new axis with old properties
             plot.copy_ax_attr(new_ax) 
 
         plt.close(self.fig) #closes the old figure
         self.fig = new_fig
+        self.fig.set_label(self.unique_ident)
 
         if debug.enabled and debug.level <= 1:
-            print(f"Reloaded figure to {num_rows}x{num_columns}, with {len(list(self.plots))+1} subplots")
+            print(f"  Reloaded figure to {num_rows}x{num_columns}, with {len(list(self.plots))+1} subplots")
     
     def add_plot(self,apt_plot_object,pos=None, **kwargs):
         #convert string to function
@@ -341,7 +363,7 @@ class apt_fig:
         self.plots[name] = ap
         ap.position = pos
         #connecting the ax to the position
-        ap.ax = plt.subplot2grid((self.rows,self.columns),pos,fig =self.fig)
+        ap.ax = plt.subplot2grid((self.rows,self.columns),pos,fig = self.fig)
         
 
         if debug.enabled and debug.level <= 2:
@@ -400,14 +422,16 @@ class apt_fig:
         for plot in self.plots.values():
             plot.make_plot(self.data, **parameters)
             if debug.enabled and debug.level <= 0:
-                print(f"Made plot {plot.name}")
+                print(f"Made plot {plot.name} \n")
 
         #then post process
         self.draw_post(**parameters)
         self.set_fontsize(**parameters)
 
         self.fig.tight_layout()
-        display(self.fig) #shows the fig without clearing it
+        #display(self.fig) #shows the fig without clearing it
+        return self.fig
+        #plt.show(self.fig)
 
  
    #scales the figure to be more close to target_size while keeping aspect ratio
@@ -426,7 +450,7 @@ class apt_fig:
         self.fig.set_figwidth(new_width)
         self.fig.set_figheight(new_height)
         if debug.enabled and debug.level <= 1:
-            print(f"Rescaled figure from {width}x{height} to {new_width}x{new_height}")
+            print(f"  Rescaled figure from {width}x{height} to {new_width}x{new_height}")
    
     def add_post(self,func,**kwargs):
         #adding the function to the post_processing 
@@ -441,15 +465,12 @@ class apt_fig:
         for func in self.post_process.values():
             func(self,**kwargs)
             if debug.enabled and debug.level <= 0:
-                print(f"Post processed with {func.__name__}")
+                print(f"    Post processed with {func.__name__}")
 
     def set_fontsize(self, **kwargs):
         parameters = self.override_params(**kwargs)
         fontsize = parameters.get('fontsize', None)
 
-        # I can override fontsize of various elements by
-        # defining fontsize for each have them set to either this
-        # global fontsize or the kwargs
     # Safely adjust suptitle if it exists
         if hasattr(self.fig, '_suptitle') and self.fig._suptitle is not None and fontsize is not None:
             self.fig._suptitle.set_fontsize(fontsize)
@@ -458,7 +479,12 @@ class apt_fig:
         for plot in self.plots.values():
             plot.set_fontsize(fontsize=fontsize)
 
-
+    def add_parameters(self, plots, **kwargs):
+        if isinstance(plots, str):
+            plots = [plots]
+        for name,value in kwargs.items():
+            for plot in plots:
+                self.plots[plot].parameters[name] = value
 
     def __str__(self):
         kwargs_str = ', '.join(f'{key}={value}' for key, value in self.kwargs.items())
@@ -482,9 +508,15 @@ and returns a dictionary of parameters that match the parameters of the function
 def match_param(parameters, obj):
     assert isinstance(parameters, dict), "parameters must be a dictionary"
     
-    obj_params = set(inspect.signature(obj).parameters.keys())
+    signature = inspect.signature(obj)
+    obj_params = set(signature.parameters.keys())
     # access the callable parameters of the object
     # sadly does not include kwargs possibilities
+
+    accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in signature.parameters.values())
+    if accepts_kwargs:
+        return parameters
+
     matching_params = {}
 
     for attr in parameters.keys():
@@ -493,7 +525,11 @@ def match_param(parameters, obj):
 
     if debug.enabled and debug.level <= 0:
         print(f"Matched parameters: {matching_params}")
+    
+    
     return matching_params
+
+
     
 
 # %%
@@ -626,6 +662,7 @@ def draw_field_lines_sph(apt_fig,**kwargs):
     flux    = np.cumsum(dataset.B1 * dataset._rv * dataset._rv * np.sin(dataset._thetav) * dataset._dtheta, axis=0)
     clevels = np.linspace(0.0, np.sqrt(Bp), 10)**2
     clevels = np.linspace(0.0, Bp, 10)
+    
     for plot in apt_fig.plots.values():    
         plot.ax.contour(dataset.x1, dataset.x2, flux, clevels, colors='green', linewidths=1)
     
@@ -703,5 +740,4 @@ def EdotB(name='EdotB'):
                      vmin = -1, #default vmin/vmax forthis quantity
                      vmax = 1,
                      )
-
 
