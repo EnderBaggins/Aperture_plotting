@@ -174,14 +174,15 @@ class apt_plot:
     '''
     def set_fontsize(self, **kwargs):
         parameters = self.override_params(**kwargs)
-        print(f"{self.name} parameters: {parameters}")
         fontsize = parameters.get('fontsize', None)
-        
+        print("params",parameters)
         #each possible fontsize type with default as the fontsize
         label_fontsize = parameters.get('label_fontsize', fontsize)
         title_fontsize = parameters.get('title_fontsize', fontsize)
         tick_fontsize = parameters.get('tick_fontsize', fontsize)
         legend_fontsize = parameters.get('legend_fontsize', fontsize)
+
+        ctick_fontsize = parameters.get('ctick_fontsize',tick_fontsize)
 
         if debug.enabled and debug.level <= 0:
             print(f"    Setting fontsize for {self.name}: {fontsize}")
@@ -190,7 +191,7 @@ class apt_plot:
             print(f"    Tick Fontsize: {tick_fontsize}")
             print(f"    Legend Fontsize: {legend_fontsize}")
     
-
+    
         #title font size
         self.ax.title.set_fontsize(title_fontsize) if title_fontsize is not None else None
         
@@ -205,14 +206,16 @@ class apt_plot:
             for text in legend.get_texts():
                 text.set_fontsize(legend_fontsize) if legend_fontsize is not None else None
         
-        # All tick label fontsizes
+        '''# All tick label fontsizes
         for tick_label in (self.ax.get_xticklabels() + self.ax.get_yticklabels()):
             tick_label.set_fontsize(tick_fontsize) if tick_fontsize is not None else None
+'''
+        self.ax.tick_params(labelsize=tick_fontsize)
 
-            # set font size for colorbar
-            cbar = self.cbar
-            if cbar:
-                cbar.ax.tick_params(labelsize=tick_fontsize) if tick_fontsize is not None else None
+        # set font size for colorbar
+        cbar = self.cbar
+        if cbar:
+            cbar.ax.tick_params(labelsize=ctick_fontsize) if tick_fontsize is not None else None
         
     def __str__(self):
         # A overinformative string representation
@@ -477,10 +480,12 @@ class apt_fig:
         
         #adjusts each plot's fontsizes
         for plot in self.plots.values():
-            plot.set_fontsize(fontsize=fontsize)
+            plot.set_fontsize(**parameters)
 
     def add_parameters(self, plots, **kwargs):
-        if isinstance(plots, str):
+        if plots == "all":
+            plots = list(self.plots)
+        elif isinstance(plots, str):
             plots = [plots]
         for name,value in kwargs.items():
             for plot in plots:
