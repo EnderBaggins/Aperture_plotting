@@ -175,7 +175,7 @@ class apt_plot:
     def set_fontsize(self, **kwargs):
         parameters = self.override_params(**kwargs)
         fontsize = parameters.get('fontsize', None)
-        print("params",parameters)
+        
         #each possible fontsize type with default as the fontsize
         label_fontsize = parameters.get('label_fontsize', fontsize)
         title_fontsize = parameters.get('title_fontsize', fontsize)
@@ -238,6 +238,7 @@ class apt_fig:
         global aperture_figure_objects
         self.unique_ident = unique_ident
         if aperture_figure_objects.get(unique_ident) is not None:
+            plt.close(aperture_figure_objects[unique_ident].fig)
             del aperture_figure_objects[unique_ident]
             if debug.enabled and debug.level <= 2:
                 print(f"Overriding apt_fig \'{unique_ident}\' with new object")
@@ -320,7 +321,7 @@ class apt_fig:
 
         plt.close(self.fig) #closes the old figure
         self.fig = new_fig
-        self.fig.set_label(self.unique_ident)
+        #self.fig.set_label(self.unique_ident)
 
         if debug.enabled and debug.level <= 1:
             print(f"  Reloaded figure to {num_rows}x{num_columns}, with {len(list(self.plots))+1} subplots")
