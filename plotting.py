@@ -533,6 +533,41 @@ def match_param(parameters, obj):
     
 
 # %%
+
+
+# %%
+########################################################
+def extract_keyword_from_error(error):
+    from re import search
+    # Use a regular expression to extract the keyword argument name from the error message
+    match = search(r"unexpected keyword argument '(\w+)'", str(error))
+    if match:
+        # If a match is found, the first group contains the keyword argument name
+        keyword_error = match.group(1)
+        return keyword_error
+    else:
+        # If no match is found, return None or handle as appropriate
+        return None
+
+def run_function_safely(func, *args, **kwargs):
+    try:
+        return func(*args, **kwargs)
+    except AttributeError as e:
+        # Attempt to extract the problematic attribute name from the error message
+        # This is fragile and depends on the error message format
+        key_error = extract_keyword_from_error(e)
+
+        # remove this key from the input arguments the recursionally run the function
+        if key_error in kwargs:
+            #if debug.enabled and debug.level <= 0:
+                #print(f"Removing key {key_error} from kwargs")
+            del kwargs[key_error]
+            return run_function_safely(func, *args, **kwargs)
+        else:
+            raise ValueError(f"could not remove key {key_error}: {e}")
+
+
+# %%
 #########################################################
 #########################################################
 # Here there be the main functions for plotting
@@ -544,20 +579,22 @@ This function plots a pcolormesh plot on the axis
 and includes a colorbar nicely placed on the right
 '''
 def colorplot(apt_plot_object,data,**kwargs): 
+    import warnings
     ax = apt_plot_object.ax
     #plotting the colorplot
     params = match_param(kwargs, ax.pcolormesh)
     if debug.enabled and debug.level <= 0:
         print(f"{apt_plot_object.name} is plotting colorplot with parameters {params}")
     
-    c = ax.pcolormesh(data.x1, data.x2, apt_plot_object.func(data), **params)
-    
+    warnings.filterwarnings("ignore", category=UserWarning, message="The input coordinates to pcolormesh are interpreted as cell centers.*")
+    c = run_function_safely(ax.pcolormesh, data.x1, data.x2, apt_plot_object.func(data), **params)
+    #c = ax.pcolormesh(data.x1, data.x2, apt_plot_object.func(data))
     #include the colorbar
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.05) ###############################consider making this a parameter inside fld_val
     cbar = plt.colorbar(c, cax=cax)
     params = match_param(kwargs, cbar.ax.tick_params)
-    cbar.ax.tick_params(**params)
+    #cbar.ax.tick_params(**params)
 
     #sets the colorbar object to the plot object
     apt_plot_object.cbar = cbar
