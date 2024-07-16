@@ -206,13 +206,14 @@ class apt_plot:
                 text.set_fontsize(legend_fontsize) if legend_fontsize is not None else None
         
         # All tick label fontsizes
-        for tick_label in (self.ax.get_xticklabels() + self.ax.get_yticklabels()):
-            tick_label.set_fontsize(tick_fontsize) if tick_fontsize is not None else None
+        # for tick_label in (self.ax.get_xticklabels() + self.ax.get_yticklabels()):
+        #     tick_label.set_fontsize(tick_fontsize) if tick_fontsize is not None else None
+        self.ax.tick_params(labelsize=tick_fontsize)
 
-            # set font size for colorbar
-            cbar = self.cbar
-            if cbar:
-                cbar.ax.tick_params(labelsize=tick_fontsize) if tick_fontsize is not None else None
+        # set font size for colorbar
+        cbar = self.cbar
+        if cbar:
+            cbar.ax.tick_params(labelsize=tick_fontsize) if tick_fontsize is not None else None
         
     def __str__(self):
         # A overinformative string representation
@@ -429,9 +430,8 @@ class apt_fig:
         self.set_fontsize(**parameters)
 
         self.fig.tight_layout()
-        #display(self.fig) #shows the fig without clearing it
+
         return self.fig
-        #plt.show(self.fig)
 
  
    #scales the figure to be more close to target_size while keeping aspect ratio
@@ -485,6 +485,7 @@ class apt_fig:
         for name,value in kwargs.items():
             for plot in plots:
                 self.plots[plot].parameters[name] = value
+
 
     def __str__(self):
         kwargs_str = ', '.join(f'{key}={value}' for key, value in self.kwargs.items())

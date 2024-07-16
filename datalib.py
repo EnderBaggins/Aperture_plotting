@@ -72,7 +72,7 @@ class Data:
     self.load_fld(step)
     self.load_ptc(step)
 
-  def reload(self):
+  def reload(self, print_keys=True):
     # reload configuration file
     self._conf = self.load_conf(os.path.join(self._path, "config.toml"))
     self.__load_mesh()
@@ -95,7 +95,8 @@ class Data:
       for k in extra_fld_keys:
         if k not in self._original_fld_keys:
           self._fld_keys.append(k)
-      print("fld keys are:", self._fld_keys)
+      if print_keys:
+        print("fld keys are:", self._fld_keys)
       f_fld.close()
 
     # generate a list of output steps for particles
@@ -111,7 +112,8 @@ class Data:
         "r",
       )
       self._ptc_keys = list(f_ptc.keys())
-      print("ptc keys are:", self._ptc_keys)
+      if print_keys:
+        print("ptc keys are:", self._ptc_keys)
       f_ptc.close()
   
   def __load_mesh(self):
