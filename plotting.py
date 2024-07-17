@@ -109,7 +109,20 @@ class apt_plot:
         self.plot_object = self.plot_function(self,data, **parameters)
         # sets the parameters of the axis
         self.set_plot_attr(**parameters)
-    
+
+    def update_plot(self, data, **kwargs):
+        parameters = self.override_params(**kwargs)
+        if self.plot_object is None:
+            raise ValueError("No plot object to update, make_fig first")
+        global colorplot
+        if self.plot_function == colorplot:
+            self.plot_object.set_array(self.func(data).flatten())
+        else:
+            raise ValueError("Update not implemented for this plot function")
+        
+
+        self.set_plot_attr(**parameters)
+        
     def set_plot_attr(self, **kwargs):
         parameters = self.parameters.copy()
         parameters.update(kwargs)
@@ -219,19 +232,7 @@ class apt_plot:
             cbar.ax.tick_params(labelsize=ctick_fontsize) if tick_fontsize is not None else None
 
 
-    def update_plot(self, data, **kwargs):
-        parameters = self.override_params(**kwargs)
-        if self.plot_object is None:
-            raise ValueError("No plot object to update, make_fig first")
-        global colorplot
-        if self.plot_function == colorplot:
-            self.plot_object.set_array(self.func(data).flatten())
-        else:
-            raise ValueError("Update not implemented for this plot function")
-
-
-        self.set_plot_attr(**parameters)
-        
+    
     def __str__(self):
         # A overinformative string representation
         kwargs_str = ', '.join(f'{key}={value}' for key, value in self.kwargs.items())
@@ -317,7 +318,7 @@ class apt_fig:
         self.data = data       #Only one dataset in apt_fig
         self.step = 0
         self.post_process = {} # post_processing functions. Things that act on all axes or figures
-
+        self.made = False      # marks whether make_fig has been run
         # storing the information about the shape of the figure
         # and it's subplots. even accounts for empty subplots
         self.columns = 1      # number of columns
@@ -532,7 +533,9 @@ class apt_fig:
     def make_fig(self, **kwargs): 
         # makes all parameters overriding the defaults with kwargs
         parameters = self.override_params(**kwargs)
-
+        
+        if kwargs.get("step",None) is not None:
+            self.step = kwargs["step"]
         #first make all the plots
         for plot in self.plots.values():
             plot.make_plot(self.data, **parameters)
@@ -544,15 +547,15 @@ class apt_fig:
             post.make_post(self, **parameters)
             if debug.enabled and debug.level <= 0:
                 print(f"  Post processed with {post.name}")
-
+        
         # fontsize is rough, so it has its own methods
         self.set_fontsize(**parameters)
 
         self.fig.tight_layout()
-
+        self.made = True # marks that the figure has been made
         return self.fig
     
-    def update_fig(self, new_step = None, **kwargs):
+    def update_fig(self, new_step = None,set_plot_attr=False, **kwargs):
 
         if new_step is not None:
             self.step = new_step
@@ -561,6 +564,8 @@ class apt_fig:
         # updates all the basic plots
         for plot in self.plots.values():
             plot.update_plot(self.data, **parameters)
+            if set_plot_attr:
+                plot.set_plot_attr(**parameters)
             if debug.enabled and debug.level <= 1:
                 print(f"  Updated plot {plot.name} \n")
 
@@ -577,6 +582,36 @@ class apt_fig:
         self.fig.canvas.draw_idle()
         return self.fig
  
+    def make_movie(self,save_name="Untitled", start=0, end=None,increment=1,  **kwargs):
+        if end is None:
+            end = len(self.data.fld_steps)
+        #checks if untitled already exists in movies
+        if os.path.exists(f"movies/{save_name}.mp4"):
+            if debug.enabled and debug.level <= 2:
+                print(f"Overwriting {save_name}.mp4")
+    
+        # first ensures that the figure has been made once
+        if not self.made:
+            self.make_fig(**kwargs)
+            # to set all the right things, this specific plot
+            # is not saved, because it does not know which step it is
+
+        if not os.path.exists('movie_plots'):
+            os.makedirs('movie_plots') #where temp pngs go
+        if not os.path.exists('movies'):
+            os.makedirs('movies') #where movies go
+        #clears out old plots
+        if len(os.listdir("movie_plots"))>0:
+            os.system("rm movie_plots/*.png")
+
+        # saves each step as a temp png
+        for step in range(start, end, increment):
+            self.update_fig(step, **kwargs)
+            self.fig.savefig(f"movie_plots/{step:05d}.png")
+
+        os.system(f"ffmpeg -y -loglevel error -r 10 -i movie_plots/%05d.png -c:v libx264 -vf fps=25 -pix_fmt yuv420p movies/{save_name}.mp4")
+                        
+
    #scales the figure to be more close to target_size while keeping aspect ratio
     def rescale_figure(self,target_size):
         width = self.fig.get_figwidth()
@@ -901,11 +936,14 @@ def Epar(name='Epar',**kwargs):
                      lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3,
                      name = name,
                      plot_function = colorplot,
-                     title = r"$\frac{\vec{E} \cdot \vec{B}}{\mathbf{B}}$",
+                     title = r"$(\vec{E} \cdot \vec{B})/(\mathbf{B})$",
                      #optional
                      vmin =vmin, #default vmin/vmax forthis quantity
                      vmax = vmax,
                      **kwargs
                      )
 apt_plot_types['Epar'] = Epar
+
+
+
 

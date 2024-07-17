@@ -1,5 +1,10 @@
 # Aperture_plotting
 
+## current issues to resolve
+when calling make_fig again in another cell, the cbar ticks are duplicated weirdly
+
+I will be writing the documentation for current implementation asap
+what follows is depracated, might still work but its not the best way to use the code
 
 ## Functions to use when plotting
 self is your apt_fig object
