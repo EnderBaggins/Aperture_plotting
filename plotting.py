@@ -119,9 +119,9 @@ class apt_plot:
             self.plot_object.set_array(self.func(data).flatten())
         else:
             raise ValueError("Update not implemented for this plot function")
-        
 
-        self.set_plot_attr(**parameters)
+
+        #self.set_plot_attr(**parameters)
         
     def set_plot_attr(self, **kwargs):
         parameters = self.parameters.copy()
@@ -219,11 +219,7 @@ class apt_plot:
         if legend:
             for text in legend.get_texts():
                 text.set_fontsize(legend_fontsize) if legend_fontsize is not None else None
-        
-        '''# All tick label fontsizes
-        for tick_label in (self.ax.get_xticklabels() + self.ax.get_yticklabels()):
-            tick_label.set_fontsize(tick_fontsize) if tick_fontsize is not None else None
-'''
+       
         self.ax.tick_params(labelsize=tick_fontsize)
 
         # set font size for colorbar
@@ -415,6 +411,8 @@ class apt_fig:
                 ap = self.construct_plot_obj(plot, **kwargs)
             elif plot in apt_plot_types:
                 ap = apt_plot_types[plot](**kwargs)
+            else:
+                raise ValueError(f"{plot} is not in apt_plot_types, try adding it to the dictionary")
         else:
             ap = plot
             #enforces that apt_plot_object is an apt_plot object
@@ -527,7 +525,12 @@ class apt_fig:
 
             if debug.enabled and debug.level <= 2:
                 print(f"Added post processing function {name}")
-
+    def del_post(self, name):
+        if name not in self.post_process:
+            raise ValueError(f"{name} does not exist as post process")
+        del self.post_process[name]
+        if debug.enabled and debug.level <= 2:
+            print(f"Deleted post processing function {name}")
        
     # this just updates the figure with whatever is in the plots
     def make_fig(self, **kwargs): 
@@ -555,10 +558,10 @@ class apt_fig:
         self.made = True # marks that the figure has been made
         return self.fig
     
-    def update_fig(self, new_step = None,set_plot_attr=False, **kwargs):
+    def update_fig(self, step = None,set_plot_attr=False, **kwargs):
 
-        if new_step is not None:
-            self.step = new_step
+        if step is not None:
+            self.step = step
 
         parameters = self.override_params(**kwargs)
         # updates all the basic plots
@@ -847,7 +850,7 @@ so it requires the apt_fig object as input
 This function will merely draw the neutron star on every plot
 '''
 def draw_NS(name='draw_NS',**kwargs):
-    def func(apt_fig,**kwargs): #just need dataset for convention
+    def func(apt_fig,**kwargs): 
         r = kwargs.get("Radius",1)
         for plot in apt_fig.plots.values():
             plot.ax.add_patch(plt.Circle((0,0),r,fill=True, color="black", alpha=0.5))
@@ -915,15 +918,15 @@ apt_plot_types = {} # a dict of possible
 # or else call add_plot(EdotB) as oppossed to add_plot("EdotB")
 
 def EdotB(name='EdotB',**kwargs):
-    vmin = kwargs.get('vmin', -1)
+    vmin = kwargs.get('vmin', -1) #default values
     vmax = kwargs.get('vmax', 1)
     return apt_plot(
                      lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3,
                      name = name,
                      plot_function = colorplot,
-                     title = r"$\vec{E} \cdot \vec{B}$",
                      #optional
-                     vmin = vmin, #default vmin/vmax forthis quantity
+                     title = r"$\vec{E} \cdot \vec{B}$",
+                     vmin = vmin,
                      vmax = vmax,
                      **kwargs
                      )
@@ -944,6 +947,17 @@ def Epar(name='Epar',**kwargs):
                      )
 apt_plot_types['Epar'] = Epar
 
-
+def test(name='test',**kwargs):
+    global afig
+    key = "B3"
+    func = getattr(afig.data,key)
+    return apt_plot(
+                     lambda data: func,
+                     name = name,
+                     plot_function = colorplot,
+                     title = r"$B_3$",
+                     **kwargs
+                     )
+apt_plot_types['test'] = test
 
 
