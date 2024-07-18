@@ -5,3 +5,4 @@ __pycache__
 movie_plots
 movie_plots
 *.mp4
+!README_images/*.png
