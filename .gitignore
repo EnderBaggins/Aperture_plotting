@@ -1,4 +1,8 @@
 *.ipynb
 *.pyc
 __pycache__
-plots/*
+*.png
+movie_plots
+movie_plots
+*.mp4
+!README_images/*.png
