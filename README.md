@@ -1,7 +1,6 @@
 # Aperture_plotting
 
 ## current issues to resolve
-when calling make_fig again in another cell, the cbar ticks are duplicated weirdly
 
 I'm not sure if the default key values for add_plot works, it seems to keep it blank
 
@@ -189,6 +188,8 @@ Do not change these directly. Please use the `apt_fig` object functions to chang
 - `name`: The name of the plot. This is set by the plot constructor function. and should also be the string that references the `apt_plot` object.
 
 - `position`: The position of the plot in the figure grid. This is set by the `add_plot` or `move_plot` method of the `apt_fig` object.
+
+- `made`: A boolean that is true if the plot has been made. This is set by the `make_plot` method.
 
 ### `apt_plot` Methods
 
