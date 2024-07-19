@@ -1,8 +1,7 @@
 # Aperture_plotting
 
 ## current issues to resolve
-
-I'm not sure if the default key values for add_plot works, it seems to keep it blank
+Any other type of plot you add will also get post processing. consider when adding post you specify what it's added to
 
 ## Example use case
 ```python

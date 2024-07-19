@@ -100,15 +100,7 @@ class apt_plot:
 
     def make_plot(self,data, **kwargs):
         parameters = self.override_params(**kwargs)
-        '''if self.made:
-            # deletes the old plot object and cbar if exists
-            self.plot_object.remove()
-            del self.plot_object
-            if hasattr(self, 'cbar') and self.cbar is not None:
-                self.cbar.remove()
-                self.cbar = None
-                self.ax.figure.canvas.draw()
-        else:'''
+        
         # creates the plot_object desired
         self.plot_object = self.plot_function(self,data, **parameters)
         # sets the parameters of the axis
@@ -119,6 +111,7 @@ class apt_plot:
         if self.plot_object is None:
             raise ValueError("No plot object to update, make_fig first")
         global colorplot
+        global equator_plot
         if self.plot_function == colorplot:
             self.plot_object.set_array(self.func(data).flatten())
             '''# Ensure the colorbar is updated to reflect the new data range
@@ -128,6 +121,10 @@ class apt_plot:
                 self.cbar.update_normal(self.plot_object)
                 # Redraw the colorbar if necessary
                 #self.cbar.draw_all()'''
+        elif self.plot_function == equator_plot:
+            self.plot_function(self, data, **parameters)
+            self.plot_object.set_data(self.xdata, self.ydata)
+
         else:
             raise ValueError("Update not implemented for this plot function")
 
@@ -139,7 +136,7 @@ class apt_plot:
         parameters.update(kwargs)
         # This requires that fld_val has the following attributes:
         # xlim, ylim, aspect, title
-        attrs = ['xlim', 'ylim', 'aspect', 'title']
+        attrs = ['xlim', 'ylim', 'aspect', 'title',"xlabel",'ylabel']
         for param in parameters:
             if param in attrs:
                 try:
@@ -234,9 +231,8 @@ class apt_plot:
         self.ax.tick_params(labelsize=tick_fontsize)
 
         # set font size for colorbar
-        cbar = self.cbar
-        if cbar:
-            cbar.ax.tick_params(labelsize=ctick_fontsize) if tick_fontsize is not None else None
+        if hasattr(self, 'cbar'):
+                self.cbar.ax.tick_params(labelsize=ctick_fontsize) if tick_fontsize is not None else None
 
 
     
@@ -801,15 +797,37 @@ def colorplot(apt_plot_object,data,**kwargs):
 # %%
 ####################################################################
 
-def line_plot(apt_plot_object,data,**kwargs):
+def equator_plot(apt_plot_object,data,**kwargs):
     ap = apt_plot_object
     ax = ap.ax
-    params = match_param(kwargs, ax.plot)
-    if debug.enabled:
-        print(f"{apt_plot_object.name} is plotting equator_Bfield with parameters {params}")
+    # hardcode B3 at equator for B3 vs r plotting
+    # mainly to test line_plots
+    # I can figure out automated later
     
-    c = ax.plot(data.x1, apt_plot_object.func(data), **params)
-    return c
+    #first finding the equator index
+    ths = data._theta # just the vector of theta values
+    equator_index = np.argmin(np.abs(ths-np.pi/2))
+
+    # from the func we need to isolate the equator
+    func = ap.func(data)
+    equator = func[equator_index]
+
+    rs = data._rv[equator_index]
+
+    # save values for use in updating
+    ap.xdata = rs
+    ap.ydata = equator
+
+    
+    if hasattr(ap, 'linemade'):
+        pass
+    else:
+        
+        params = match_param(kwargs, ax.plot)
+        line, = run_function_safely(ax.plot,rs, equator, **params)
+        
+        ap.linemade = True
+        return line
 
 # %%
 apt_post_types = {}
@@ -969,18 +987,22 @@ def Epar(name='Epar',**kwargs):
                      )
 apt_plot_types['Epar'] = Epar
 
-def test(name='test',**kwargs):
-    global afig
-    key = "B3"
-    func = getattr(afig.data,key)
+
+
+
+
+# %%
+def EdotB_eq(name='EdotB_eq',**kwargs):
+
     return apt_plot(
-                     lambda data: func,
+                     lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3,
                      name = name,
-                     plot_function = colorplot,
-                     title = r"$B_3$",
+                     plot_function = equator_plot,
+                     xlabel = "r",
+                     ylabel = r"$\vec{E} \cdot \vec{B}$",
                      **kwargs
                      )
-apt_plot_types['test'] = test
+apt_plot_types['EdotB_eq'] = EdotB_eq
 
 
 
