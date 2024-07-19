@@ -121,6 +121,13 @@ class apt_plot:
         global colorplot
         if self.plot_function == colorplot:
             self.plot_object.set_array(self.func(data).flatten())
+            '''# Ensure the colorbar is updated to reflect the new data range
+            # This assumes self.cbar exists and is the colorbar associated with self.plot_object
+            if hasattr(self, 'cbar'):
+                # Update the colorbar's limits based on the new data
+                self.cbar.update_normal(self.plot_object)
+                # Redraw the colorbar if necessary
+                #self.cbar.draw_all()'''
         else:
             raise ValueError("Update not implemented for this plot function")
 
@@ -399,9 +406,11 @@ class apt_fig:
     def construct_plot_obj(self,key,**kwargs):
         # default print type for fld obj is colorplot
         global colorplot
-        func = getattr(self.data, key)
+        if debug.enabled and debug.level <= 1:
+            print(f"Constructing plot object for {key}")
+            
         name = kwargs.get('name', key)
-        return apt_plot(lambda data: func
+        return apt_plot(lambda data: getattr(data, key)
                       , name = name
                       , plot_function = colorplot
                       , title = key
@@ -972,5 +981,7 @@ def test(name='test',**kwargs):
                      **kwargs
                      )
 apt_plot_types['test'] = test
+
+
 
 
