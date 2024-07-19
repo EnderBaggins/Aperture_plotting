@@ -60,12 +60,6 @@ class debugging:
 debug = debugging(enabled=False)
 
 # %%
-aperture_figure_objects = {}
-# this is all the apt_fig objects that have been created
-# I will need to fix this
-
-
-# %%
 ################################################################################
 '''
 Defines the function that will be used to calculate the quantity
@@ -78,6 +72,7 @@ class apt_plot:
         self.plot_function = plot_function # e.g colorplot using pcolormesh
         self.parameters = {} # all possible parameters for the plot
         self.position = None # a (row,col) tuple (starts at 0->N-1)
+        self.made = False
         self.name = name
         self.ax = None
 
@@ -105,6 +100,15 @@ class apt_plot:
 
     def make_plot(self,data, **kwargs):
         parameters = self.override_params(**kwargs)
+        '''if self.made:
+            # deletes the old plot object and cbar if exists
+            self.plot_object.remove()
+            del self.plot_object
+            if hasattr(self, 'cbar') and self.cbar is not None:
+                self.cbar.remove()
+                self.cbar = None
+                self.ax.figure.canvas.draw()
+        else:'''
         # creates the plot_object desired
         self.plot_object = self.plot_function(self,data, **parameters)
         # sets the parameters of the axis
@@ -117,6 +121,13 @@ class apt_plot:
         global colorplot
         if self.plot_function == colorplot:
             self.plot_object.set_array(self.func(data).flatten())
+            '''# Ensure the colorbar is updated to reflect the new data range
+            # This assumes self.cbar exists and is the colorbar associated with self.plot_object
+            if hasattr(self, 'cbar'):
+                # Update the colorbar's limits based on the new data
+                self.cbar.update_normal(self.plot_object)
+                # Redraw the colorbar if necessary
+                #self.cbar.draw_all()'''
         else:
             raise ValueError("Update not implemented for this plot function")
 
@@ -289,6 +300,8 @@ class apt_post:
 
 # %%
 ################################################################################
+aperture_figure_objects = {}
+# this is all the apt_fig objects that have been created
 '''
 apt_fig is a one dataset class object storing all the information necessary to plot a figure of subplots
 this will have children objects that will store the information necessary to plot the data of one subplot
@@ -393,9 +406,11 @@ class apt_fig:
     def construct_plot_obj(self,key,**kwargs):
         # default print type for fld obj is colorplot
         global colorplot
-        func = getattr(self.data, key)
+        if debug.enabled and debug.level <= 1:
+            print(f"Constructing plot object for {key}")
+            
         name = kwargs.get('name', key)
-        return apt_plot(lambda data: func
+        return apt_plot(lambda data: getattr(data, key)
                       , name = name
                       , plot_function = colorplot
                       , title = key
@@ -534,6 +549,13 @@ class apt_fig:
        
     # this just updates the figure with whatever is in the plots
     def make_fig(self, **kwargs): 
+        # first if it is already made, close the figure and remake it
+        # this is to stop drawing over the old figure
+        if self.made:
+            plt.close(self.fig)
+            # then redo the figure
+            self.set_fig_shape(self.rows,self.columns)
+
         # makes all parameters overriding the defaults with kwargs
         parameters = self.override_params(**kwargs)
         
@@ -751,17 +773,17 @@ and includes a colorbar nicely placed on the right
 def colorplot(apt_plot_object,data,**kwargs): 
     import warnings
     ax = apt_plot_object.ax
-    #plotting the colorplot
     params = match_param(kwargs, ax.pcolormesh)
     if debug.enabled and debug.level <= 0:
         print(f"{apt_plot_object.name} is plotting colorplot with parameters {params}")
     
     warnings.filterwarnings("ignore", category=UserWarning, message="The input coordinates to pcolormesh are interpreted as cell centers.*")
+    # passing params into pcolormesh crashes, so we need to remove problematic ones with run_function_safely
     c = run_function_safely(ax.pcolormesh, data.x1, data.x2, apt_plot_object.func(data), **params)
-    #c = ax.pcolormesh(data.x1, data.x2, apt_plot_object.func(data))
+    
     #include the colorbar
     divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.05) ###############################consider making this a parameter inside fld_val
+    cax = divider.append_axes("right", size="5%", pad=0.05)
     cbar = plt.colorbar(c, cax=cax)
     params = match_param(kwargs, cbar.ax.tick_params)
     #cbar.ax.tick_params(**params)
@@ -955,5 +977,7 @@ def test(name='test',**kwargs):
                      **kwargs
                      )
 apt_plot_types['test'] = test
+
+
 
 
