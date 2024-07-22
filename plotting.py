@@ -841,10 +841,6 @@ def equator_plot(apt_plot_object,data,**kwargs):
         ap.linemade = True
         return line
 
-# %%
-afig.plots["EdotB"].ax.get_children()
-
-# %%
 apt_post_types = {}
 
 # %%

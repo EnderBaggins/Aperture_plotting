@@ -1,7 +1,8 @@
 # Aperture_plotting
 
 ## current issues to resolve
-Any other type of plot you add will also get post processing. consider when adding post you specify what it's added to
+Any other type of plot you add will also get post processing. consider when adding post you specify what it's added to.
+Currently I have the post processing functions have to call each plot object and run its thing in a loop. But I think it would be cleaner If I Just have it run its thing and loop it when you do add_post. This way I can have a post processing function that only runs on a specific plot object, or whatever subset.
 
 ## Example use case
 ```python
@@ -81,7 +82,7 @@ Adds a plot to the figure. Saves the `apt_plot` object in the `plots` dictionary
   - `datakey` (optional): The key of the data object to plot, defaults to apt_plot_obect. This is used for example when wanting to plot both a pcolormesh of data.B3 and an equator lineplot of B3, so the input name must be different to differentiate.
 
   - `kwargs`: Additional arguments to override the parameters of the `apt_plot` object.
-  
+
 - **Returns:** None.
 - **Example Use**
 ```python
@@ -92,6 +93,9 @@ afig.add_plot("B3", pos=(0, 1))
 Adds a post-processing step to the figure. Saves the `apt_post` object in the `post_process` dictionary.
 - **Parameters:**
   - `apt_post_obj`: a list or a single entry of `apt_post` objects or strings corresponding to an `apt_post` object in `apt_post_types`.
+  
+  - `add_to` (optional default: "all"): a string or a list of strings corresponding to plot keys in the `afig.plots` dictionary to add the post-processing step to. Default is "all" to apply to all plots.
+
   - `kwargs`: additional arguments to override the parameters of the `apt_post` object.
 
 - **Returns:** None.
@@ -270,11 +274,13 @@ Use these to access and change attributes of the post-processing step.
 #### Internal Attributes
 Do not change these directly.
 
-- `post_func`: the function that is called to do the post-processing step. This is set by the post constructor function.
+- `post_func`: the function that is called to do the post-processing step. This is set by the post constructor function. needs to be of the form `func(self,apt_fig,**kwargs)` where self will apply to the apt_post object.
 
-- `update_func` (optional): a function that is called to update the post-processing step. This is set by the post constructor function. (afig.update_fig will call this function if it exists)
+- `update_func` (optional): a function that is called to update the post-processing step. This is set by the post constructor function. (afig.update_fig will call this function if it exists) will need to be of the form `update_func(self,apt_fig,**kwargs)` where self will apply to the apt_post object.
 
 - `name`: The name of the post-processing step. use this as the key to access (e.g `afig.post_process[name]) This is set by the post constructor function.
+
+- `post_plots`: A list of the plots that the post-processing step is applied to. This is set by the post constructor function. ensure that your post_func can handle multiple plots with `for plot in self.post_plots:`
 
 ### `apt_post` Methods
 
@@ -296,14 +302,16 @@ The constructor function should have the following structure:
 ```python
 def post_name(name='post_name',**kwargs):
     
-    def func(apt_fig,**kwargs):
-        #do something 
+    def func(self,apt_fig,**kwargs):
+        #compute whatever you need to compute to throw in each plot 
+        for ploy in self.post_plots:
+            #do something to the plot
         return None
     
     #Optionally add an update function
-    def update_func(apt_fig,**kwargs):
+    def update_func(self,apt_fig,**kwargs):
         # update the thing you did
-        # frequently is just del old object and
+        # frequently is just del old object for plot in self.post_plots
         # then recall func
         return None
     return apt_post(
@@ -318,28 +326,29 @@ apt_post_types['post_name'] = post_name
 ```python
 def draw_field_lines1(name='draw_field_lines1',**kwargs):
     
-    def func(apt_fig,**kwargs):
+    def func(self,apt_fig,**kwargs):
         data = apt_fig.data
-        Bp = kwargs.get('Bp',data.conf["Bp"])
+        Bmax = kwargs.get('Bp',data.conf["Bp"])
         flux    = np.cumsum(data.B1 * data._rv * data._rv * np.sin(data._thetav) * data._dtheta, axis=0)
-        clevels = np.linspace(0.0, np.sqrt(Bp), 10)**2
+        clevels = np.linspace(0.0, np.sqrt(Bmax), 10)**2
+        #clevels = np.linspace(0.0, Bmax, 10)
         
-        for plot in apt_fig.plots.values():
+        for plot in self.post_plots:
             contours = plot.ax.contour(data.x1, data.x2, flux, clevels, colors='green', linewidths=1)
             setattr(plot, name, contours)
             # to access for update later
         return None
     
-    def update_func(apt_fig,**kwargs):
+    def update_func(self,apt_fig,**kwargs):
         
-        for plot in apt_fig.plots.values():
+        for plot in self.post_plots:
             if hasattr(plot, name):
                 for c in getattr(plot, name).collections:
                     c.remove()
-        func(apt_fig,**kwargs)
+        func(self,apt_fig,**kwargs)
             
         if debug.enabled and debug.level <= 1:
-            print(f"Updated {name}")
+            print(f"Updated {name} at timestep {apt_fig.step}")
         return None
     
     return apt_post(name, func, update_func, **kwargs)
@@ -347,9 +356,9 @@ apt_post_types['draw_field_lines1'] = draw_field_lines1
 ```
 ```python
 def draw_NS(name='draw_NS',**kwargs):
-    def func(apt_fig,**kwargs): 
+    def func(self,apt_fig,**kwargs): 
         r = kwargs.get("Radius",1)
-        for plot in apt_fig.plots.values():
+        for plot in self.post_plots:
             plot.ax.add_patch(plt.Circle((0,0),r,fill=True, color="black", alpha=0.5))
 
     return apt_post(name, func, **kwargs)
