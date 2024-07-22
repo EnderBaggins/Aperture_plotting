@@ -77,6 +77,7 @@ class apt_plot:
         self.name = name
         self.ax = None
 
+
         self.set_default_parameters()
         self.parameters.update(kwargs) #override the defaults
     
@@ -122,7 +123,7 @@ class apt_plot:
                 self.cbar.update_normal(self.plot_object)
                 # Redraw the colorbar if necessary
                 #self.cbar.draw_all()'''
-        elif self.plot_function == "lineplot":
+        elif self.plot_type == "lineplot":
             self.plot_function(self, data, **parameters)
             self.plot_object.set_data(self.xdata, self.ydata)
 
@@ -250,10 +251,11 @@ apt_post is a class that will be used to make single post processing functions
 allowing for updating of the plot as well
 '''
 class apt_post:
-    def __init__(self, name, post_func, update_func=None, **kwargs):
+    def __init__(self, name, post_func=None, update_func=None, **kwargs):
 
         self.post_func = post_func
         self.update_func = update_func
+        self.post_plots = None # the list of plots to run post on
 
         self.parameters = {}
         self.name = name
@@ -275,7 +277,9 @@ class apt_post:
 
     def make_post(self,apt_fig_obj, **kwargs):
         parameters = self.override_params(**kwargs)
-        self.post_func(apt_fig_obj, **parameters)
+        # need to pass self into these functions
+        # to allow the post_func to access self parameters
+        self.post_func(self,apt_fig_obj, **parameters)
 
     def update_post(self, apt_fig_obj, **kwargs):
         parameters = self.override_params(**kwargs)
@@ -283,7 +287,7 @@ class apt_post:
             if debug.enabled and debug.level <= 0:
                 print(f"    {self.name} not updated")
         else:
-            self.update_func(apt_fig_obj, **parameters)
+            self.update_func(self,apt_fig_obj, **parameters)
 
     def set_fontsize(self, **kwargs):
         parameters = self.override_params(**kwargs)
@@ -521,11 +525,21 @@ class apt_fig:
             print(f"Moved plot {name} to position {pos}")
 
     
-    def add_post(self,apt_post_obj,**kwargs):
+    def add_post(self,apt_post_obj,add_to = "all",**kwargs):
+
+        if add_to == "all":
+            post_plots = list(self.plots.values())
+        elif isinstance(add_to, str):
+            post_plots = [self.plots[add_to]]
+        else:
+            post_plots = [self.plots[plot] for plot in add_to]
+        
         global apt_post_types
         # allows for a list of the objects
         if not isinstance(apt_post_obj, list):
             apt_post_obj = [apt_post_obj]
+        
+        
         for post in apt_post_obj:
             if isinstance(post, str):
                 if post in apt_post_types:
@@ -539,9 +553,11 @@ class apt_fig:
                 raise ValueError(f"{name} already exists as post process")
             
             self.post_process[name] = ap
-
+            ap.post_plots = post_plots
+            
             if debug.enabled and debug.level <= 2:
                 print(f"Added post processing function {name}")
+
     def del_post(self, name):
         if name not in self.post_process:
             raise ValueError(f"{name} does not exist as post process")
@@ -610,6 +626,7 @@ class apt_fig:
         return self.fig
  
     def make_movie(self,save_name="Untitled", start=0, end=None,increment=1,  **kwargs):
+        assert all(isinstance(var, (int, type(None))) for var in [start, end, increment]), "start, end, increment must be integers or None"
         if end is None:
             end = len(self.data.fld_steps)
         #checks if untitled already exists in movies
@@ -633,10 +650,11 @@ class apt_fig:
 
         # saves each step as a temp png
         for step in range(start, end, increment):
+            save_step = step // increment # this is to make sure the steps are always incrementing by 1
             self.update_fig(step, **kwargs)
-            self.fig.savefig(f"movie_plots/{step:05d}.png")
+            self.fig.savefig(f"movie_plots/{save_step:05d}.png")
 
-        os.system(f"ffmpeg -y -loglevel error -r 10 -i movie_plots/%05d.png -c:v libx264 -vf fps=25 -pix_fmt yuv420p movies/{save_name}.mp4")
+        os.system(f"ffmpeg -y -loglevel error -r 10 -i movie_plots/%05d.png -c:v libx264 -vf fps=25 -pix_fmt yuv420p -threads 0 movies/{save_name}.mp4")
                         
 
    #scales the figure to be more close to target_size while keeping aspect ratio
@@ -681,8 +699,6 @@ class apt_fig:
 
 
     
-
-
 
     def __str__(self):
         kwargs_str = ', '.join(f'{key}={value}' for key, value in self.kwargs.items())
@@ -841,6 +857,7 @@ def equator_plot(apt_plot_object,data,**kwargs):
         ap.linemade = True
         return line
 
+# %%
 apt_post_types = {}
 
 # %%
@@ -862,28 +879,29 @@ Current problems is it required Bp inside the config of the dataset
 '''
 def draw_field_lines1(name='draw_field_lines1',**kwargs):
     
-    def func(apt_fig,**kwargs):
+    def func(self,apt_fig,**kwargs):
         data = apt_fig.data
-        Bp = kwargs.get('Bp',data.conf["Bp"])
+        Bmax = kwargs.get('Bp',data.conf["Bp"])
         flux    = np.cumsum(data.B1 * data._rv * data._rv * np.sin(data._thetav) * data._dtheta, axis=0)
-        clevels = np.linspace(0.0, np.sqrt(Bp), 10)**2
+        clevels = np.linspace(0.0, np.sqrt(Bmax), 10)**2
+        #clevels = np.linspace(0.0, Bmax, 10)
         
-        for plot in apt_fig.plots.values():
+        for plot in self.post_plots:
             contours = plot.ax.contour(data.x1, data.x2, flux, clevels, colors='green', linewidths=1)
             setattr(plot, name, contours)
             # to access for update later
         return None
     
-    def update_func(apt_fig,**kwargs):
+    def update_func(self,apt_fig,**kwargs):
         
-        for plot in apt_fig.plots.values():
+        for plot in self.post_plots:
             if hasattr(plot, name):
                 for c in getattr(plot, name).collections:
                     c.remove()
-        func(apt_fig,**kwargs)
+        func(self,apt_fig,**kwargs)
             
         if debug.enabled and debug.level <= 1:
-            print(f"Updated {name}")
+            print(f"Updated {name} at timestep {apt_fig.step}")
         return None
     
     return apt_post(name, func, update_func, **kwargs)
@@ -901,9 +919,9 @@ so it requires the apt_fig object as input
 This function will merely draw the neutron star on every plot
 '''
 def draw_NS(name='draw_NS',**kwargs):
-    def func(apt_fig,**kwargs): 
+    def func(self,apt_fig,**kwargs): 
         r = kwargs.get("Radius",1)
-        for plot in apt_fig.plots.values():
+        for plot in self.post_plots:
             plot.ax.add_patch(plt.Circle((0,0),r,fill=True, color="black", alpha=0.5))
 
     return apt_post(name, func, **kwargs)
@@ -1014,9 +1032,3 @@ def EdotB_eq(name='EdotB_eq',**kwargs):
                      **kwargs
                      )
 apt_plot_types['EdotB_eq'] = EdotB_eq
-
-
-
-
-
-
