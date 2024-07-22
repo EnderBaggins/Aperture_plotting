@@ -680,6 +680,10 @@ class apt_fig:
                 self.plots[plot].parameters[name] = value
 
 
+    
+
+
+
     def __str__(self):
         kwargs_str = ', '.join(f'{key}={value}' for key, value in self.kwargs.items())
         return f"figure_plotting with kwargs: {kwargs_str}"
@@ -1014,3 +1018,9 @@ def EdotB_eq(name='EdotB_eq',**kwargs):
                      **kwargs
                      )
 apt_plot_types['EdotB_eq'] = EdotB_eq
+
+
+
+
+
+
