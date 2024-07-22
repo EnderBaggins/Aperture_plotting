@@ -416,7 +416,7 @@ class apt_fig:
                       , title = key
                       , **kwargs)
     
-    def add_plot(self,name,pos=None,plot_function = colorplot, datakey=None, **kwargs):
+    def add_plot(self,name,pos=None, plot_function = colorplot, datakey=None, **kwargs):
         
         global apt_plot_types
         plot = name
@@ -678,10 +678,6 @@ class apt_fig:
         for name,value in kwargs.items():
             for plot in plots:
                 self.plots[plot].parameters[name] = value
-
-
-    
-
 
 
     def __str__(self):
