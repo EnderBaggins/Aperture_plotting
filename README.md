@@ -65,15 +65,23 @@ Do not change these directly.
 - `rows`: The number of rows in the figure grid.
 - Additional parameters that functions may add to internally track their workings.
 
+
 ### `apt_fig` Methods
 
 #### `add_plot(plot, pos=None)`:
 Adds a plot to the figure. Saves the `apt_plot` object in the `plots` dictionary.
 
 - **Parameters:**
-  -  `apt_plot`: an `apt_plot` object, a string corresponding to an `apt_plot` object in `apt_plot_types`, or a string corresponding to a field value in the `data` object (e.g., `"B3"` refers to `data.B3`).
+  -  `name`: an `apt_plot` object, a string corresponding to an `apt_plot` object in `apt_plot_types`, or a string corresponding to a field value in the `data` object (e.g., `"B3"` refers to `data.B3`).
+
   - `pos` (optional): Specifies the grid position of the plot in the figure as a tuple (e.g., `(0, 1)` for first row, second column). The default is `None`, which adds the plot to a new column.
+
+  - `plot_function` (optional: Default "colorplot"): The function to use to plot the data. This is used when wanting to plot a function from the data.keys without having to make an entirely new function for each one.
+
+  - `datakey` (optional): The key of the data object to plot, defaults to apt_plot_obect. This is used for example when wanting to plot both a pcolormesh of data.B3 and an equator lineplot of B3, so the input name must be different to differentiate.
+
   - `kwargs`: Additional arguments to override the parameters of the `apt_plot` object.
+  
 - **Returns:** None.
 - **Example Use**
 ```python
@@ -189,6 +197,8 @@ Do not change these directly. Please use the `apt_fig` object functions to chang
 - `position`: The position of the plot in the figure grid. This is set by the `add_plot` or `move_plot` method of the `apt_fig` object.
 
 - `made`: A boolean that is true if the plot has been made. This is set by the `make_plot` method.
+
+- `plot_type`: The type of plot (e.g. colorplot, lineplot). This is set by the plot constructor function. This is used to determine how to update the plot. 2D colorgrids use set_array, lineplots use set_data, etc.
 
 ### `apt_plot` Methods
 

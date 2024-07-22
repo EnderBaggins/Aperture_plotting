@@ -70,6 +70,7 @@ class apt_plot:
         self.func = func
         self.plot_object = None
         self.plot_function = plot_function # e.g colorplot using pcolormesh
+        self.plot_type = None # plot type for use in updating i.e pcolormesh, lineplot, etc
         self.parameters = {} # all possible parameters for the plot
         self.position = None # a (row,col) tuple (starts at 0->N-1)
         self.made = False
@@ -112,7 +113,7 @@ class apt_plot:
             raise ValueError("No plot object to update, make_fig first")
         global colorplot
         global equator_plot
-        if self.plot_function == colorplot:
+        if self.plot_type == "colorplot":
             self.plot_object.set_array(self.func(data).flatten())
             '''# Ensure the colorbar is updated to reflect the new data range
             # This assumes self.cbar exists and is the colorbar associated with self.plot_object
@@ -121,7 +122,7 @@ class apt_plot:
                 self.cbar.update_normal(self.plot_object)
                 # Redraw the colorbar if necessary
                 #self.cbar.draw_all()'''
-        elif self.plot_function == equator_plot:
+        elif self.plot_function == "lineplot":
             self.plot_function(self, data, **parameters)
             self.plot_object.set_data(self.xdata, self.ydata)
 
@@ -399,27 +400,32 @@ class apt_fig:
         if debug.enabled and debug.level <= 1:
             print(f"  Reloaded figure to {num_rows}x{num_columns}, with {len(list(self.plots))+1} subplots")
     
-    def construct_plot_obj(self,key,**kwargs):
+    def construct_plot_obj(self,key,plot_function, **kwargs):
         # default print type for fld obj is colorplot
         global colorplot
         if debug.enabled and debug.level <= 1:
             print(f"Constructing plot object for {key}")
             
         name = kwargs.get('name', key)
+        # remove from kwargs
+        kwargs.pop('name', None)
+
         return apt_plot(lambda data: getattr(data, key)
                       , name = name
-                      , plot_function = colorplot
+                      , plot_function = plot_function
                       , title = key
                       , **kwargs)
     
-    def add_plot(self,apt_plot_object,pos=None, **kwargs):
+    def add_plot(self,name,pos=None,plot_function = colorplot, datakey=None, **kwargs):
         
         global apt_plot_types
-        plot = apt_plot_object
+        plot = name
         if isinstance(plot, str):
             # first we check if the str is a data.keys
             if plot in self.data.keys:
-                ap = self.construct_plot_obj(plot, **kwargs)
+                ap = self.construct_plot_obj(plot,plot_function, **kwargs)
+            elif datakey is not None:
+                ap = self.construct_plot_obj(datakey,plot_function,name =name, **kwargs)
             elif plot in apt_plot_types:
                 ap = apt_plot_types[plot](**kwargs)
             else:
@@ -427,13 +433,13 @@ class apt_fig:
         else:
             ap = plot
             #enforces that apt_plot_object is an apt_plot object
-        assert isinstance(ap, apt_plot), "plot must be a apt_plot object, try e.g EdotB() not EdotB"
+        assert isinstance(ap, apt_plot), "plot must be a apt_plot object, try e.g EdotB() not EdotB or add datakey argument"
         
 
         name = ap.name
         #if the plot already exists, raise an error
         if name in self.plots:
-            raise ValueError(f"{name} already exists as plot")
+            raise ValueError(f"{name} already exists as plot (if you are trying to plot the same data but with different plot_function), try adding datakey to override the name")
 
         # if no position is given, add to a new column on top
         # consider making it fill empty spots first
@@ -771,15 +777,17 @@ This function plots a pcolormesh plot on the axis
 and includes a colorbar nicely placed on the right
 '''
 def colorplot(apt_plot_object,data,**kwargs): 
+    ap = apt_plot_object
     import warnings
-    ax = apt_plot_object.ax
+    ax = ap.ax
+    ap.plot_type = 'colorplot'
     params = match_param(kwargs, ax.pcolormesh)
     if debug.enabled and debug.level <= 0:
-        print(f"{apt_plot_object.name} is plotting colorplot with parameters {params}")
+        print(f"{ap.name} is plotting colorplot with parameters {params}")
     
     warnings.filterwarnings("ignore", category=UserWarning, message="The input coordinates to pcolormesh are interpreted as cell centers.*")
     # passing params into pcolormesh crashes, so we need to remove problematic ones with run_function_safely
-    c = run_function_safely(ax.pcolormesh, data.x1, data.x2, apt_plot_object.func(data), **params)
+    c = run_function_safely(ax.pcolormesh, data.x1, data.x2, ap.func(data), **params)
     
     #include the colorbar
     divider = make_axes_locatable(ax)
@@ -809,16 +817,20 @@ def equator_plot(apt_plot_object,data,**kwargs):
     equator_index = np.argmin(np.abs(ths-np.pi/2))
 
     # from the func we need to isolate the equator
-    func = ap.func(data)
-    equator = func[equator_index]
+    func = ap.func(data) # the fld function of the data
+    equator = func[equator_index] #isolated to equatorial plane
 
     rs = data._rv[equator_index]
 
     # save values for use in updating
+    
+    ap.plot_type = 'lineplot' #to allow for lineplot updating
     ap.xdata = rs
     ap.ydata = equator
 
-    
+    # now we plot the line
+    # this allows us to call the function again to update the line data
+    # without redrawing the whole plot as xdata,ydata is the pertinent data
     if hasattr(ap, 'linemade'):
         pass
     else:
@@ -828,6 +840,9 @@ def equator_plot(apt_plot_object,data,**kwargs):
         
         ap.linemade = True
         return line
+
+# %%
+afig.plots["EdotB"].ax.get_children()
 
 # %%
 apt_post_types = {}
@@ -1003,7 +1018,3 @@ def EdotB_eq(name='EdotB_eq',**kwargs):
                      **kwargs
                      )
 apt_plot_types['EdotB_eq'] = EdotB_eq
-
-
-
-
