@@ -1,39 +1,59 @@
 # Aperture_plotting
 
-## current issues to resolve
-Any other type of plot you add will also get post processing. consider when adding post you specify what it's added to.
-Currently I have the post processing functions have to call each plot object and run its thing in a loop. But I think it would be cleaner If I Just have it run its thing and loop it when you do add_post. This way I can have a post processing function that only runs on a specific plot object, or whatever subset.
+## Current Issues or Future implementations
+no way of directly comparing two datasets. This will probably end up being a wrapper function that takes two created figures and adds them together. I could also look into a way of making data an attribute of the apt_plot object, so different onces could be different datasets. This would fail when different datasets have diffferent shapes or different step sizes. things to consider here.
+
+You have do do a lot of from plotting import this or that and its easy to miss something. I could make it be a `from plotting import *` but that is not ideal. I could make a simple `import_plotting.py` file that runs all pertinent imports. then all you need do is run that file in the beginning of your stuff.
+
+I could specify the created constructor functions with tags, so they know what they are for. This would allow to not need apt_plot_types for example, but when creating a new one you need to remember to tag it.
+
 
 ## Example use case
 ```python
 import plotting
-from plotting import apt_fig
+from plotting import colorplot, theta_const_plot
+from plotting import apt_fig, aperture_figure_objects
+from plotting import apt_plot, apt_plot_types #when you want to make your own plot functions
+from plotting import apt_post, apt_post_types #when you want to make your own post processing functions
+
 import matplotlib.pyplot as plt
 data = plotting.DataSph('[path to data folder]/data/')
 ```
 ```python
-plt.ioff() # Stops duplicate showing
+plt.ioff()
 afig = apt_fig(data,"afig")
 
 afig.add_plot("EdotB")
-afig.add_plot("B3")
-afig.add_post(["draw_field_lines1", "draw_NS"])
+afig.add_plot("B3",title = r"$B_\phi$")
+
+afig.add_plot("B3_eq", plot_function=theta_const_plot,datakey="B3", pos= (1,1))
+afig.add_parameters("B3_eq", ylabel = r"$B_\phi$", xlabel = "r", title = "Equatorial plane")
+
+afig.add_plot("EdotB_eq", plot_function=theta_const_plot, pos= (1,0),title = "Equatorial plane")
+afig.add_post(["draw_field_lines1", "draw_NS"], add_to = ["EdotB", "B3"])
 
 afig.add_parameters("all", xlim = [0,10], ylim = [-5,5]
                     , title_fontsize = 24, tick_fontsize=12
                     , vmin = -0.2, vmax = 0.2)
 afig.add_parameters("B3", vmin = -1, vmax = 1)
 
-afig.step = 100
+afig.step = 10
 
-afig.make_fig(fontsize=12)
+fig = afig.make_fig(fontsize=12,title_fontsize = 24,label_fontsize=24)
+fig.set_size_inches(11,10)
+fig.tight_layout()
+display(fig)
 ```
 ![Example output](README_images/mdexample.png)
 
 
 ## Structure of the code
 
-There are four main classes in the code: apt_fig, apt_plot, apt_post, DataSph/Data
+There are four main classes in the code: apt_fig, apt_plot, apt_post, DataSph/Data. The apt_fig class is the central class that manages the other classes and creates the figure. The apt_plot class is a child of apt_fig and is responsible for creating a singular subplot in the figure. The apt_post class is also a child of apt_fig and is responsible for post-processing steps in the figure. The DataSph and Data classes are responsible for handling Aperture's data structures and loading the data for the plotting functions.
+
+Any parameters you wish to change can be accessed directly from the various classes as decribed in the documentation, or you can use the `add_parameters` method of the `apt_fig` object to change the parameters of the `apt_plot` objects.
+
+Any matplotlib method you wish to use you can use on the `apt_plot` object's `ax` attribute. (e.g. `afig.plots["plot_key"].ax.set_title("New Title")`) or the `apt_fig` object's `fig` attribute. (e.g. `afig.fig.suptitle("New Title")`)
 
 
 ## `apt_fig` Class
@@ -79,7 +99,7 @@ Adds a plot to the figure. Saves the `apt_plot` object in the `plots` dictionary
 
   - `plot_function` (optional: Default "colorplot"): The function to use to plot the data. This is used when wanting to plot a function from the data.keys without having to make an entirely new function for each one.
 
-  - `datakey` (optional): The key of the data object to plot, defaults to apt_plot_obect. This is used for example when wanting to plot both a pcolormesh of data.B3 and an equator lineplot of B3, so the input name must be different to differentiate.
+  - `datakey` (optional): The key of the data object to plot, defaults to apt_plot_obect. This is used for example when wanting to plot both a pcolormesh of data.B3 and an theta_const lineplot of B3, so the input name must be different to differentiate.
 
   - `kwargs`: Additional arguments to override the parameters of the `apt_plot` object.
 
@@ -399,6 +419,8 @@ Access the dictionary of these functions with `apt_post_types`
 These are the functions that actually do the plotting. They are inputs into the `apt_plot` constructor functions and are called by the `apt_plot` object's `make_plot` method.
 
 - `colorplot`: Makes a color plot of the data. Uses the `pcolormesh` function and sets the colorbar. saves the colorbar as an attribute of the `apt_plot` object. apt_plot.cbar. This allows a hardcoded updating for fontsize
+
+- `theta_const_plot`: Makes a line plot of the data fld values at a specific theta value (default `pi/2`). 
 
 - Other plotting functions to be added
 

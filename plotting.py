@@ -411,17 +411,20 @@ class apt_fig:
             print(f"Constructing plot object for {key}")
             
         name = kwargs.get('name', key)
+        title = kwargs.get('title', key)
         # remove from kwargs
         kwargs.pop('name', None)
+        kwargs.pop('title', None)
 
         return apt_plot(lambda data: getattr(data, key)
                       , name = name
                       , plot_function = plot_function
-                      , title = key
+                      , title = title
                       , **kwargs)
     
-    def add_plot(self,name,pos=None, plot_function = colorplot, datakey=None, **kwargs):
-        
+    def add_plot(self,name,pos=None, plot_function = None, datakey=None, **kwargs):
+        if plot_function is None:
+            plot_function = colorplot # default plot function
         global apt_plot_types
         plot = name
         if isinstance(plot, str):
@@ -821,16 +824,17 @@ def colorplot(apt_plot_object,data,**kwargs):
 # %%
 ####################################################################
 
-def equator_plot(apt_plot_object,data,**kwargs):
+def theta_const_plot(apt_plot_object,data,**kwargs):
     ap = apt_plot_object
     ax = ap.ax
-    # hardcode B3 at equator for B3 vs r plotting
+
+    theta = kwargs.get('theta',np.pi/2)
     # mainly to test line_plots
     # I can figure out automated later
     
     #first finding the equator index
     ths = data._theta # just the vector of theta values
-    equator_index = np.argmin(np.abs(ths-np.pi/2))
+    equator_index = np.argmin(np.abs(ths-theta))
 
     # from the func we need to isolate the equator
     func = ap.func(data) # the fld function of the data
@@ -1026,7 +1030,7 @@ def EdotB_eq(name='EdotB_eq',**kwargs):
     return apt_plot(
                      lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3,
                      name = name,
-                     plot_function = equator_plot,
+                     plot_function = theta_const_plot,
                      xlabel = "r",
                      ylabel = r"$\vec{E} \cdot \vec{B}$",
                      **kwargs
