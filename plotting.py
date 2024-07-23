@@ -8,7 +8,6 @@ import numpy as np
 
 
 
-# matplotlib.rc("text", usetex=True)
 from IPython.display import display # for displaying figs without clearing them
 
 import inspect # for comparing arguments and parameters
@@ -33,6 +32,7 @@ from typing import Any #used in __setattr__ to allow any attribute type to be se
 from mpl_toolkits.axes_grid1 import make_axes_locatable # for colorbar
 from matplotlib.colors import LinearSegmentedColormap
 matplotlib.rc("font", family="serif")
+matplotlib.rc("text", usetex=True)
 
 cdata = {
     "red": [(0.0, 0.0, 0.0), (0.5, 0.0, 0.0), (0.55, 1.0, 1.0), (1.0, 1.0, 1.0),],

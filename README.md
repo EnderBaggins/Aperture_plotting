@@ -7,7 +7,16 @@ You have do do a lot of from plotting import this or that and its easy to miss s
 
 I could specify the created constructor functions with tags, so they know what they are for. This would allow to not need apt_plot_types for example, but when creating a new one you need to remember to tag it.
 
+a second make_fig will delete anything you do directly to the afig.fig object. i.e afig.fig.set_size_inches will not pass through a second make_fig. This is because the fig object is deleted and recreated. through these changes, but it would be a lot of work and probably not worth it.
 
+add afig.add_colorplot wrappers
+
+call theta_const as lineout
+
+add colorbar as a plot option too
+default with colorplot
+
+I can totally refactor the construcor objects, the constructor just returns the different things it needs, then add_plot calls apt_plot.
 ## Example use case
 ```python
 import plotting
