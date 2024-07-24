@@ -424,6 +424,7 @@ class apt_fig:
     def add_plot(self,key,pos=None, plot_function = None, **kwargs):
         if plot_function is None:
             plot_function = colorplot # default plot function
+        
         global apt_plot_types
         plot = key
         if isinstance(plot, str):
@@ -431,7 +432,8 @@ class apt_fig:
             if plot in self.data.keys:
                 ap = self.construct_plot_obj(plot,plot_function, **kwargs)
             elif plot in apt_plot_types:
-                ap = apt_plot_types[plot](**kwargs)
+                name = kwargs.get('name', plot)
+                ap = apt_plot_types[name](**kwargs)
             else:
                 raise ValueError(f"{plot} is not in apt_plot_types, try adding it to the dictionary")
         else:
@@ -443,7 +445,7 @@ class apt_fig:
         name = ap.name
         #if the plot already exists, raise an error
         if name in self.plots:
-            raise ValueError(f"{name} already exists as plot (if you are trying to plot the same data but with different plot_function), try adding datakey to override the name")
+            raise ValueError(f"{name} already exists as plot (if you are trying to plot the same data with key but with different plot_function), try adding name to change the name")
 
         # if no position is given, add to a new column on top
         # consider making it fill empty spots first
@@ -697,7 +699,40 @@ class apt_fig:
             for plot in plots:
                 self.plots[plot].parameters[name] = value
 
+    # other adding plots that wrap add_plot
+    def add_colorplot(self, fld_func= None, name = None, key = None,**kwargs):
+        global colorplot
+        if fld_func is not None:
+            assert callable(fld_func), "fld_func must be a lambda function: lambda data: (function of data.keys)"
+            if name is None:
+                raise ValueError("name must be specified if fld_func is given")
+            else:
+                aplot = apt_plot(fld_func, name, colorplot, **kwargs)
+                self.add_plot(aplot,**kwargs)
+        elif key is not None:
+            # just add_plot with colorplot
+            kwargs['name'] = name # so it passes name through nicely
+            self.add_plot(key, plot_function=colorplot, **kwargs)
+        else:
+            raise NameError("fld_func/name or key must be specified")
 
+    def add_lineout(self, fld_func= None, name = None, key = None,theta = np.pi/2, **kwargs):
+        global lineout # this is the lineout function for plotting a lineplot
+        
+        if fld_func is not None:
+            assert callable(fld_func), "fld_func must be a lambda function: lambda data: (function of data.keys)"
+            if name is None:
+                raise ValueError("name must be specified if fld_func is given")
+            else:
+                aplot = apt_plot(fld_func, name, lineout, **kwargs)
+                self.add_plot(aplot,**kwargs)
+        elif key is not None:
+            # just add_plot with colorplot
+            # add name to kwargs to pass correctly
+            kwargs['name'] = name
+            self.add_plot(key, plot_function = lineout, **kwargs)
+        else:
+            raise NameError("fld_func/name or key must be specified")
     
 
     def __str__(self):
@@ -835,7 +870,7 @@ def lineout(apt_plot_object,data,**kwargs):
 
     # from the func we need to isolate the equator
     func = ap.func(data) # the fld function of the data
-    line = func[equlineator_index] #isolated to theta lineout plane
+    line = func[line_index] #isolated to theta lineout plane
 
     rs = data._rv[line_index]
 

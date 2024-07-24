@@ -9,9 +9,6 @@ I could specify the created constructor functions with tags, so they know what t
 
 a second make_fig will delete anything you do directly to the afig.fig object. i.e afig.fig.set_size_inches will not pass through a second make_fig. This is because the fig object is deleted and recreated. through these changes, but it would be a lot of work and probably not worth it.
 
-add afig.add_colorplot wrappers
-
-call theta_const as lineout
 
 add colorbar as a plot option too
 default with colorplot
@@ -20,7 +17,7 @@ I can totally refactor the construcor objects, the constructor just returns the 
 ## Example use case
 ```python
 import plotting
-from plotting import colorplot, theta_const_plot
+from plotting import colorplot, lineout
 from plotting import apt_fig, aperture_figure_objects
 from plotting import apt_plot, apt_plot_types #when you want to make your own plot functions
 from plotting import apt_post, apt_post_types #when you want to make your own post processing functions
@@ -35,10 +32,10 @@ afig = apt_fig(data,"afig")
 afig.add_plot("EdotB")
 afig.add_plot("B3",title = r"$B_\phi$")
 
-afig.add_plot("B3_eq", plot_function=theta_const_plot,datakey="B3", pos= (1,1))
+afig.add_plot("B3_eq", plot_function=lineout,datakey="B3", pos= (1,1))
 afig.add_parameters("B3_eq", ylabel = r"$B_\phi$", xlabel = "r", title = "Equatorial plane")
 
-afig.add_plot("EdotB_eq", plot_function=theta_const_plot, pos= (1,0),title = "Equatorial plane")
+afig.add_plot("EdotB_eq", plot_function=lineout, pos= (1,0),title = "Equatorial plane")
 afig.add_post(["draw_field_lines1", "draw_NS"], add_to = ["EdotB", "B3"])
 
 afig.add_parameters("all", xlim = [0,10], ylim = [-5,5]
@@ -99,6 +96,14 @@ Do not change these directly.
 ### `apt_fig` Methods
 
 #### `add_plot(plot, pos=None)`:
+##### Wrappers for add_plot:
+These functions call add_plot and just make a plot of that type. You can either specify the key value to reference a premade function or frovide a fld_func lambda function and name to create a new apt_plot object.
+
+- `add_colorplot(fld_func, name, key=None)`: adds a colorplot to the figure by calling add_plot. 
+
+- `add_lineout(fld_func, name, key=None)`: adds a lineout to the figure by calling add_plot.
+
+##### continue with add_plot:
 Adds a plot to the figure. Saves the `apt_plot` object in the `plots` dictionary.
 
 - **Parameters:**
@@ -429,7 +434,7 @@ These are the functions that actually do the plotting. They are inputs into the 
 
 - `colorplot`: Makes a color plot of the data. Uses the `pcolormesh` function and sets the colorbar. saves the colorbar as an attribute of the `apt_plot` object. apt_plot.cbar. This allows a hardcoded updating for fontsize
 
-- `theta_const_plot`: Makes a line plot of the data fld values at a specific theta value (default `pi/2`). 
+- `lineout`: Makes a line plot of the data fld values at a specific theta value (default `pi/2`). 
 
 - Other plotting functions to be added
 
