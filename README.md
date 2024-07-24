@@ -102,13 +102,13 @@ Do not change these directly.
 Adds a plot to the figure. Saves the `apt_plot` object in the `plots` dictionary.
 
 - **Parameters:**
-  -  `name`: an `apt_plot` object, a string corresponding to an `apt_plot` object in `apt_plot_types`, or a string corresponding to a field value in the `data` object (e.g., `"B3"` refers to `data.B3`).
+  -  `key`: an `apt_plot` object, a string corresponding to an `apt_plot` object in `apt_plot_types`, or a string corresponding to a field value in the `data` object (e.g., `"B3"` refers to `data.B3`).
+
+  - `name` (optional): The name of the plot. Defaults to the key value.
 
   - `pos` (optional): Specifies the grid position of the plot in the figure as a tuple (e.g., `(0, 1)` for first row, second column). The default is `None`, which adds the plot to a new column.
 
   - `plot_function` (optional: Default "colorplot"): The function to use to plot the data. This is used when wanting to plot a function from the data.keys without having to make an entirely new function for each one.
-
-  - `datakey` (optional): The key of the data object to plot, defaults to apt_plot_obect. This is used for example when wanting to plot both a pcolormesh of data.B3 and an theta_const lineplot of B3, so the input name must be different to differentiate.
 
   - `kwargs`: Additional arguments to override the parameters of the `apt_plot` object.
 
@@ -130,7 +130,7 @@ Adds a post-processing step to the figure. Saves the `apt_post` object in the `p
 - **Returns:** None.
 - **Example Use**
 ```python
-afig.add_post(["draw_field_lines1", "draw_NS"])
+afig.add_post(["draw_field_lines1", "draw_NS"], add_to = ["EdotB", "B3"])
 ```
 
 #### `add_parameters(plots)`:

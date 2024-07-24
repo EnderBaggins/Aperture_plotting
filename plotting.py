@@ -112,8 +112,7 @@ class apt_plot:
         parameters = self.override_params(**kwargs)
         if self.plot_object is None:
             raise ValueError("No plot object to update, make_fig first")
-        global colorplot
-        global equator_plot
+        
         if self.plot_type == "colorplot":
             self.plot_object.set_array(self.func(data).flatten())
             '''# Ensure the colorbar is updated to reflect the new data range
@@ -422,17 +421,15 @@ class apt_fig:
                       , title = title
                       , **kwargs)
     
-    def add_plot(self,name,pos=None, plot_function = None, datakey=None, **kwargs):
+    def add_plot(self,key,pos=None, plot_function = None, **kwargs):
         if plot_function is None:
             plot_function = colorplot # default plot function
         global apt_plot_types
-        plot = name
+        plot = key
         if isinstance(plot, str):
             # first we check if the str is a data.keys
             if plot in self.data.keys:
                 ap = self.construct_plot_obj(plot,plot_function, **kwargs)
-            elif datakey is not None:
-                ap = self.construct_plot_obj(datakey,plot_function,name =name, **kwargs)
             elif plot in apt_plot_types:
                 ap = apt_plot_types[plot](**kwargs)
             else:
@@ -824,7 +821,7 @@ def colorplot(apt_plot_object,data,**kwargs):
 # %%
 ####################################################################
 
-def theta_const_plot(apt_plot_object,data,**kwargs):
+def lineout(apt_plot_object,data,**kwargs):
     ap = apt_plot_object
     ax = ap.ax
 
@@ -832,21 +829,21 @@ def theta_const_plot(apt_plot_object,data,**kwargs):
     # mainly to test line_plots
     # I can figure out automated later
     
-    #first finding the equator index
+    #first finding the index of the theta ray
     ths = data._theta # just the vector of theta values
-    equator_index = np.argmin(np.abs(ths-theta))
+    line_index = np.argmin(np.abs(ths-theta))
 
     # from the func we need to isolate the equator
     func = ap.func(data) # the fld function of the data
-    equator = func[equator_index] #isolated to equatorial plane
+    line = func[equlineator_index] #isolated to theta lineout plane
 
-    rs = data._rv[equator_index]
+    rs = data._rv[line_index]
 
     # save values for use in updating
     
     ap.plot_type = 'lineplot' #to allow for lineplot updating
     ap.xdata = rs
-    ap.ydata = equator
+    ap.ydata = line
 
     # now we plot the line
     # this allows us to call the function again to update the line data
@@ -856,7 +853,7 @@ def theta_const_plot(apt_plot_object,data,**kwargs):
     else:
         
         params = match_param(kwargs, ax.plot)
-        line, = run_function_safely(ax.plot,rs, equator, **params)
+        line, = run_function_safely(ax.plot,rs, line, **params)
         
         ap.linemade = True
         return line
@@ -1030,7 +1027,7 @@ def EdotB_eq(name='EdotB_eq',**kwargs):
     return apt_plot(
                      lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3,
                      name = name,
-                     plot_function = theta_const_plot,
+                     plot_function = lineout,
                      xlabel = "r",
                      ylabel = r"$\vec{E} \cdot \vec{B}$",
                      **kwargs
