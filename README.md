@@ -103,6 +103,8 @@ These functions call add_plot and just make a plot of that type. You can either 
 
 - `add_lineout(fld_func, name, key=None)`: adds a lineout to the figure by calling add_plot.
 
+- `add_particle_plot(species,x_key,y_key)`: adds a particle plot to the figure by calling add_plot. using the function particle_plot
+
 ##### continue with add_plot:
 Adds a plot to the figure. Saves the `apt_plot` object in the `plots` dictionary.
 
@@ -189,6 +191,7 @@ afig.make_movie("Example_movie")
 - `del_plot(name)`: Deletes a plot from the figure.
 - `move_plot(name, pos)`: Moves a plot to a new position in the figure.
 - `rescale_figure(target_size)`: Rescales the figure to the target size, maintaining the aspect ratio.
+- `set_size(xsize, ysize)`: Sets the size of the figure by calling `fig.set_size_inches`. Will also be called every time `make_fig` is called, defaulted to doing nothing.
 
 #### Internal Use (probably should not be used directly):
 - `override_params()`: returns the parameters of the figure, overriding (not overwriting) the default parameters of the `apt_plot` objects.
@@ -435,6 +438,8 @@ These are the functions that actually do the plotting. They are inputs into the 
 - `colorplot`: Makes a color plot of the data. Uses the `pcolormesh` function and sets the colorbar. saves the colorbar as an attribute of the `apt_plot` object. apt_plot.cbar. This allows a hardcoded updating for fontsize
 
 - `lineout`: Makes a line plot of the data fld values at a specific theta value (default `pi/2`). 
+
+- `particle_plot`: Makes a histogram plot of the particle data. allows for species, x_key, and y_key to be specified. Only accessible with add_particle_plot, as add_plot gets confusing with the extra arguments.
 
 - Other plotting functions to be added
 

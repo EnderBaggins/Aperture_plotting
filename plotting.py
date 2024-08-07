@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt #cause I use both plt and random mpl functions
 import numpy as np
 
 
-
 from IPython.display import display # for displaying figs without clearing them
 
 import inspect # for comparing arguments and parameters
@@ -595,11 +594,28 @@ class apt_fig:
         
         # fontsize is rough, so it has its own methods
         self.set_fontsize(**parameters)
-
+        self.set_size()
         self.fig.tight_layout()
         self.made = True # marks that the figure has been made
         return self.fig
     
+
+    def set_size(self, xsize = None,ysize = None,**kwargs):
+
+        if xsize is not None and ysize is not None:
+            shape = [xsize, ysize]
+            self.shape = shape
+        elif hasattr(self, 'shape'):
+            shape = self.shape
+        else:
+            shape = None
+
+        if shape is not None:
+            self.fig.set_size_inches(shape,**kwargs)
+        else:
+            raise ValueError("Size not specified and no default shape available.")
+
+
     def update_fig(self, step = None,set_plot_attr=False, **kwargs):
 
         if step is not None:
@@ -733,7 +749,26 @@ class apt_fig:
             self.add_plot(key, plot_function = lineout, **kwargs)
         else:
             raise NameError("fld_func/name or key must be specified")
-    
+    def add_particle_plot(self, species, x_key, y_key,**kwargs):
+        # first checking species is valid
+        
+        if species not in ["p", "e", "electron", "positron"] and species not in [0, 1]:
+            raise ValueError(f"Species {species} is not valid, must be 'e' or 'p' or 0 or 1, to add ion change add_particle_plot in apt_fig")
+        global particle_plot
+
+        name = kwargs.get('name', f"{y_key}_v_{x_key}")
+        kwargs.update({'name': name})
+        kwargs.setdefault("xlabel", x_key)
+        kwargs.setdefault("ylabel", y_key)   
+
+        aplot = apt_plot(None, plot_function = particle_plot, **kwargs)
+
+        #Giving correct parameters for the particle_plot function to access
+        aplot.y_key = y_key
+        aplot.x_key = x_key
+        aplot.species = species
+
+        self.add_plot(aplot,**kwargs)
 
     def __str__(self):
         kwargs_str = ', '.join(f'{key}={value}' for key, value in self.kwargs.items())
@@ -892,6 +927,33 @@ def lineout(apt_plot_object,data,**kwargs):
         
         ap.linemade = True
         return line
+
+# %%
+def particle_plot(apt_plot_object,data,**kwargs):
+    ap = apt_plot_object
+    ax = ap.ax
+
+    # First ensures that the plot object has the necessary keys
+    if not all(hasattr(ap, key) for key in ['x_key', 'y_key', 'species']):
+        raise AttributeError("One or more required attributes ('x_key', 'y_key', 'species') are missing in the object 'ap'")
+    x_key = getattr(ap, 'x_key')
+    y_key = getattr(ap, 'y_key')
+    species = getattr(ap, 'species')
+    if species != 0 or 1:
+        if species == "p"or "positron":
+            species = 1
+        elif species == "e" or "electron":
+            species = 0
+        else:
+            raise ValueError(f"Species {species} is not valid, must be 'e' or 'p', or 0 or 1")
+
+    # Now we can plot the particle plot with the species flag
+    x = getattr(data, f"tracked_ptc_{x_key}")[flag_to_species(data.tracked_ptc_flag) == species]
+    y = getattr(data, f"tracked_ptc_{y_key}")[flag_to_species(data.tracked_ptc_flag) == species]
+
+    plot = run_function_safely(ax.hist2d, x, y, bins=200,**kwargs)
+
+    #ap.plot_type = 'particle_plot' # need to understand how to update first
 
 # %%
 apt_post_types = {}
@@ -1068,3 +1130,4 @@ def EdotB_eq(name='EdotB_eq',**kwargs):
                      **kwargs
                      )
 apt_plot_types['EdotB_eq'] = EdotB_eq
+
