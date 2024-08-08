@@ -117,7 +117,7 @@ class Data:
       f_ptc.close()
   
   def __load_mesh(self):
-    print("Base")
+    # print("Base")
     # load mesh file
     if self._mesh_loaded:
       return

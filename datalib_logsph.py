@@ -40,7 +40,7 @@ class DataSph(Data):
       data.close()
 
   def __load_sph_mesh(self):
-    print("Derived")
+    # print("Derived")
     # if self._mesh_loaded:
     #   return
     self._meshfile = os.path.join(self._path, "grid.h5")
