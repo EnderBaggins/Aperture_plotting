@@ -116,6 +116,8 @@ class apt_plot:
             self.plot_object.set_array(self.func(data).flatten())
             
         elif self.plot_type == "lineplot":
+            # any lineplot function must specify xdata and ydata as attributes
+            # of the apt_plot object and only run the plotting when linemade is false
             self.plot_function(self, data, **parameters)
             self.plot_object.set_data(self.xdata, self.ydata)
 
@@ -603,7 +605,7 @@ class apt_fig:
             shape = self.shape
         else:
             shape = None
-
+        # This allows for make_fig to call set_size even without having a preset shape
         if shape is not None:
             self.fig.set_size_inches(shape,**kwargs)
         
@@ -724,36 +726,36 @@ class apt_fig:
         else:
             raise NameError("fld_func/name or key must be specified")
 
-    def add_lineout(self, fld_func= None, name = None, key = None,theta = np.pi/2, **kwargs):
-        global lineout # this is the lineout function for plotting a lineplot
+    def add_lineout_plot(self, fld_func= None, name = None, key = None,theta = np.pi/2, **kwargs):
+        global lineout_plot # this is the lineout function for plotting a lineplot
         
         if fld_func is not None:
             assert callable(fld_func), "fld_func must be a lambda function: lambda data: (function of data.keys)"
             if name is None:
                 raise ValueError("name must be specified if fld_func is given")
             else:
-                aplot = apt_plot(fld_func, name, lineout, **kwargs)
+                aplot = apt_plot(fld_func, name, lineout_plot, **kwargs)
                 self.add_plot(aplot,**kwargs)
         elif key is not None:
             # just add_plot with colorplot
             # add name to kwargs to pass correctly
             kwargs['name'] = name
-            self.add_plot(key, plot_function = lineout, **kwargs)
+            self.add_plot(key, plot_function = lineout_plot, **kwargs)
         else:
             raise NameError("fld_func/name or key must be specified")
-    def add_particle_plot(self, species, x_key, y_key,**kwargs):
+    def add_particle_hist(self, species, x_key, y_key,**kwargs):
         # first checking species is valid
         
         if species not in ["p", "e", "electron", "positron"] and species not in [0, 1]:
             raise ValueError(f"Species {species} is not valid, must be 'e' or 'p' or 0 or 1, to add ion change add_particle_plot in apt_fig")
-        global particle_plot
+        global particle_hist
 
         name = kwargs.get('name', f"{y_key}_v_{x_key}")
         kwargs.update({'name': name})
         kwargs.setdefault("xlabel", x_key)
         kwargs.setdefault("ylabel", y_key)   
 
-        aplot = apt_plot(None, plot_function = particle_plot, **kwargs)
+        aplot = apt_plot(None, plot_function = particle_hist, **kwargs)
 
         #Giving correct parameters for the particle_plot function to access
         aplot.y_key = y_key
@@ -762,6 +764,36 @@ class apt_fig:
 
         self.add_plot(aplot,**kwargs)
 
+    def add_spectrum(self, species,logscale= False, **kwargs):
+
+        # first convert to list of species
+        if isinstance(species, str):
+            species = [species]
+        elif isinstance(species, int):
+            species = [species]
+        elif isinstance(species, list):
+            pass
+        else:
+            raise ValueError(f"Species {species} is not valid, must be 'e' or 'p' or 0 or 1, to add ion change add_spectrum in apt_fig")
+        
+        global spectrum_plot
+        
+        kwargs.setdefault("xlabel", "$E$")
+        if logscale:
+            kwargs.setdefault("ylabel", "$EdN/dE$")
+        else:
+            kwargs.setdefault("ylabel", "$dN/dE$")
+        
+
+        name = kwargs.get('name', f"{species}_spectrum")
+        kwargs.update({'name': name}) #need to update so kwargs can pass to add_plot nicely
+        aplot = apt_plot(None, plot_function = spectrum_plot, **kwargs)
+
+        #Giving correct parameters for the spectrum_plot function to access
+        aplot.species = species
+        aplot.logscale = logscale
+
+        self.add_plot(aplot,**kwargs)
 
     def print_info(self):
         afig = self
@@ -804,10 +836,6 @@ class apt_fig:
 
 # %% [markdown]
 # # plotting.py
-
-# %%
-
-#from plotting_files.plotting_classes import *
 
 # %%
 ###################################################################################################
@@ -863,7 +891,7 @@ def extract_keyword_from_error(error):
 def run_function_safely(func, *args, **kwargs):
     try:
         return func(*args, **kwargs)
-    except AttributeError as e:
+    except (AttributeError,TypeError) as e:
         # Attempt to extract the problematic attribute name from the error message
         # This is fragile and depends on the error message format
         key_error = extract_keyword_from_error(e)
@@ -918,7 +946,7 @@ def colorplot(apt_plot_object,data,**kwargs):
 # %%
 ####################################################################
 
-def lineout(apt_plot_object,data,**kwargs):
+def lineout_plot(apt_plot_object,data,**kwargs):
     ap = apt_plot_object
     ax = ap.ax
 
@@ -956,7 +984,7 @@ def lineout(apt_plot_object,data,**kwargs):
         return line
 
 # %%
-def particle_plot(apt_plot_object,data,**kwargs):
+def particle_hist(apt_plot_object,data,**kwargs):
     ap = apt_plot_object
     ax = ap.ax
 
@@ -983,6 +1011,69 @@ def particle_plot(apt_plot_object,data,**kwargs):
 
     return plot
     #ap.plot_type = 'particle_plot' # need to understand how to update first
+
+# %%
+
+
+# %%
+# Spectra looks at the particle data and plots a histogram of the energy
+# will need to consider log scale as well
+def spectrum_plot(apt_plot_object,data,**kwargs):
+    ap = apt_plot_object
+    ax = ap.ax
+    ap.plot_type = 'lineplot' #to allow for lineplot updating
+
+    #ap.xdata = rs
+    #ap.ydata = line
+
+    # First ensures that the plot object has the necessary keys
+    if not all(hasattr(ap, key) for key in ['species']):
+        raise AttributeError("One or more required attributes ('species') are missing in the object 'ap'")
+    species = getattr(ap, 'species')
+    if isinstance(species, str):
+        species = [species]
+        # this is to enable multiple species to be plotted
+    for specie in species:
+        if specie == "p"or "positron":
+            specie = 1
+        elif specie == "e" or "electron":
+            specie = 0
+        else:
+            raise ValueError(f"Species {specie} is not valid, must be 'e' or 'p', or 0 or 1")
+    # The flag requires species to be 0 or 1 (or the ion option)
+    
+        # Now we can plot the particle plot with the species flag
+        energy = getattr(data, f"tracked_ptc_E")[flag_to_species(data.tracked_ptc_flag) == specie]
+        logscale = getattr(ap, 'logscale', False)
+        kwargs.setdefault('bins', 300)
+        if logscale:
+            #override the bins which is defaulted to a number to a logarithmic space
+            bins = run_function_safely(np.logspace,np.log10(energy.min()), np.log10(energy.max()), num = kwargs.get("bins"),**kwargs)
+            kwargs['bins'] = bins
+        
+        #making the histogram
+        params = match_param(kwargs, ax.hist)
+        # saves the histogram data 
+        counts, bin_edges = run_function_safely(np.histogram,energy, **params)
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+        #doesn't work with the multiple species yet
+        ap.xdata = bin_centers
+        ap.ydata = counts
+
+        if hasattr(ap, 'linemade'):
+                pass
+        else:
+            
+            params = match_param(kwargs, ax.plot)
+            line, = run_function_safely(ax.step,bin_centers, counts, **params)
+            if logscale:
+                ax.set_xscale('log')
+
+            ap.linemade = True # to only run the step function once future times will only update the data
+            return line
+
+
 
 # %%
 apt_post_types = {}

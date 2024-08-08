@@ -108,7 +108,9 @@ These functions call add_plot and just make a plot of that type. You can either 
 
 - `add_lineout(fld_func, name, key=None)`: adds a lineout to the figure by calling add_plot.
 
-- `add_particle_plot(species,x_key,y_key)`: adds a particle plot to the figure by calling add_plot. using the function particle_plot
+- `add_particle_hist(species,x_key,y_key)`: adds a particle histogram to the figure by calling add_plot. using the function particle_plot
+
+- `add_spectrum(species,logscale=False)`: adds a particle spectrum to the figure by calling add_plot. using the function particle_spectrum
 
 ##### continue with add_plot:
 Adds a plot to the figure. Saves the `apt_plot` object in the `plots` dictionary.
@@ -448,6 +450,8 @@ These are the functions that actually do the plotting. They are inputs into the 
 
 - `particle_plot`: Makes a histogram plot of the particle data. allows for species, x_key, and y_key to be specified. Only accessible with add_particle_plot, as add_plot gets confusing with the extra arguments.
 
+- `spectrum_plot`: Makes a spectrum plot of the particle data. allows for species and logscale to be specified. Only accessible with add_spectrum, as add_plot gets confusing with the extra arguments.
+
 - Other plotting functions to be added
 
 ### Other functions
@@ -459,5 +463,5 @@ Matches the possible arguments of an obj to a dictionary of parameters. returns 
 Extracts the keyword that gave an unexpected keyword argument. This is used for the `run_function_safely` function
 
 #### `run_function_safely(func, *args, **kwargs)`:
-Tries to run a function with the given arguments. If the function does not accept an argument it will remove the keyword that gave an error and try again. This is used because pcolormesh accepts kwargs, but passes those to quadmesh.set() which runs errors on many possibly parameters.
+Tries to run a function with the given arguments. If the function does not accept an argument it will remove the keyword that gave an error and try again. This is used because not all functions allow kwargs nicely.
 
