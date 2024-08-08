@@ -1,6 +1,9 @@
 # Aperture_plotting
 
 ## Current Issues or Future implementations
+
+particle_plot will not update with update_fig
+
 no way of directly comparing two datasets. This will probably end up being a wrapper function that takes two created figures and adds them together. I could also look into a way of making data an attribute of the apt_plot object, so different onces could be different datasets. This would fail when different datasets have diffferent shapes or different step sizes. things to consider here.
 
 You have do do a lot of from plotting import this or that and its easy to miss something. I could make it be a `from plotting import *` but that is not ideal. I could make a simple `import_plotting.py` file that runs all pertinent imports. then all you need do is run that file in the beginning of your stuff.
@@ -12,6 +15,8 @@ a second make_fig will delete anything you do directly to the afig.fig object. i
 
 add colorbar as a plot option too
 default with colorplot
+
+make lineout work with multiple lines (or have another way of showing multiple lineplots on a single subplot)
 
 I can totally refactor the construcor objects, the constructor just returns the different things it needs, then add_plot calls apt_plot.
 ## Example use case
@@ -185,6 +190,8 @@ Creates a movie of the figure based on a range of steps and saves it in the movi
 ```python
 afig.make_movie("Example_movie")
 ```
+#### `print_info()`:
+Prints the information of the figure. This includes the data object, the plots, and the post-processing steps as well as all of their parameters.
 
 ### Other `apt_fig` Methods
 #### External Use:

@@ -114,13 +114,7 @@ class apt_plot:
         
         if self.plot_type == "colorplot":
             self.plot_object.set_array(self.func(data).flatten())
-            '''# Ensure the colorbar is updated to reflect the new data range
-            # This assumes self.cbar exists and is the colorbar associated with self.plot_object
-            if hasattr(self, 'cbar'):
-                # Update the colorbar's limits based on the new data
-                self.cbar.update_normal(self.plot_object)
-                # Redraw the colorbar if necessary
-                #self.cbar.draw_all()'''
+            
         elif self.plot_type == "lineplot":
             self.plot_function(self, data, **parameters)
             self.plot_object.set_data(self.xdata, self.ydata)
@@ -612,9 +606,7 @@ class apt_fig:
 
         if shape is not None:
             self.fig.set_size_inches(shape,**kwargs)
-        else:
-            raise ValueError("Size not specified and no default shape available.")
-
+        
 
     def update_fig(self, step = None,set_plot_attr=False, **kwargs):
 
@@ -769,6 +761,41 @@ class apt_fig:
         aplot.species = species
 
         self.add_plot(aplot,**kwargs)
+
+
+    def print_info(self):
+        afig = self
+        from IPython.display import display, Markdown
+
+        def extract_parameters(obj):
+            if hasattr(obj, 'parameters') and isinstance(obj.parameters, dict):
+                return obj.parameters
+            return {}
+
+        def format_parameters(parameters):
+            return "\n".join([f"     {key}: {value}" for key, value in parameters.items()])
+
+        output = []
+        output.append(f"**{afig.unique_ident}:**")
+        output.append(f"   \n ***Overriding Parameters:***")
+        output.append(f"\n{format_parameters(afig.parameters)}\n")
+        
+        output.append(f"**{afig.unique_ident} has the following plots:**\n")
+        for name, plot in afig.plots.items():
+            output.append(f"  **{name}**\n")
+            output.append(f"    Position: {plot.position}")
+            output.append(f"    Parameters:")
+            output.append(f"{format_parameters(extract_parameters(plot))}\n")
+            
+        output.append(f"**Post-processing functions:**\n")
+        for name, post in afig.post_process.items():
+            output.append(f"  **{name}**\n")
+            output.append(f"    Parameters:")
+            output.append(f"{format_parameters(extract_parameters(post))}\n")
+            
+        
+        display(Markdown("\n".join(output)))
+
 
     def __str__(self):
         kwargs_str = ', '.join(f'{key}={value}' for key, value in self.kwargs.items())
@@ -939,6 +966,7 @@ def particle_plot(apt_plot_object,data,**kwargs):
     x_key = getattr(ap, 'x_key')
     y_key = getattr(ap, 'y_key')
     species = getattr(ap, 'species')
+    # The flag requires species to be 0 or 1 (or the ion option)
     if species != 0 or 1:
         if species == "p"or "positron":
             species = 1
@@ -953,6 +981,7 @@ def particle_plot(apt_plot_object,data,**kwargs):
 
     plot = run_function_safely(ax.hist2d, x, y, bins=200,**kwargs)
 
+    return plot
     #ap.plot_type = 'particle_plot' # need to understand how to update first
 
 # %%
@@ -1130,4 +1159,3 @@ def EdotB_eq(name='EdotB_eq',**kwargs):
                      **kwargs
                      )
 apt_plot_types['EdotB_eq'] = EdotB_eq
-
