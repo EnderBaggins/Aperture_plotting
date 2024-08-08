@@ -72,7 +72,7 @@ class Data:
     self.load_fld(step)
     self.load_ptc(step)
 
-  def reload(self, print_keys=True):
+  def reload(self, print_keys=False):
     # reload configuration file
     self._conf = self.load_conf(os.path.join(self._path, "config.toml"))
     self.__load_mesh()
