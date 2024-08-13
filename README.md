@@ -122,7 +122,7 @@ Adds a plot to the figure. Saves the `apt_plot` object in the `plots` dictionary
 
   - `data` a reference to the dataset to plot. This is used when you want to plot a different dataset than the one the figure was created with. This is useful for comparing datasets. 
 
-  - `pos` (optional): Specifies the grid position of the plot in the figure as a tuple (e.g., `(0, 1)` for first row, second column). The default is `None`, which adds the plot to a new column.
+  - `pos` (optional): Specifies the grid position of the plot in the figure as a tuple (e.g., `(0, 1)` for first row, second column). The default is `None`, which adds the plot to a new column. If you want to span across multiple columns or rows use colspan or rowspan
 
   - `plot_function` (optional: Default "colorplot"): The function to use to plot the data. This is used when wanting to plot a function from the data.keys without having to make an entirely new function for each one.
 

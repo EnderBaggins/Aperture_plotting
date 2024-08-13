@@ -460,8 +460,9 @@ class apt_fig:
         #copies over the old axes
         for plot in self.plots.values():
             pos = plot.position
-
-            new_ax = plt.subplot2grid((num_rows,num_columns),pos,fig= new_fig)
+            colspan = plot.colspan
+            rowspan = plot.rowspan
+            new_ax = plt.subplot2grid((num_rows,num_columns),pos,fig= new_fig,colspan=colspan, rowspan=rowspan)
             # setting plot.ax to new axis with old properties
             plot.copy_ax_attr(new_ax) 
 
@@ -490,7 +491,9 @@ class apt_fig:
                       , title = title
                       , **kwargs)
     '''
-    def add_plot(self,key,pos=None, plot_function = None, data=None, **kwargs):
+    def add_plot(self,key,pos=None, plot_function = None, data=None, subpos = None, **kwargs):
+        #subpos is a grid position on the main position (i.e grid in grid)
+
         if plot_function is None:
             plot_function = colorplot # default plot function
 
@@ -536,13 +539,20 @@ class apt_fig:
         # I think redundent if the number of rows and columns are unchanged
         # but I think its cleaner to make sure everything updates
         self.set_fig_grid(self.rows,self.columns)
-            
+        
+        #allowing for subgrid
+        colspan = kwargs.get('colspan',1)
+        rowspan = kwargs.get('rowspan',1)
+        ap.colspan = colspan
+        ap.rowspan = rowspan
+
         # add the plot to the dictionary
         self.plots[name] = ap
         ap.position = pos
         #connecting the ax to the position
-        ap.ax = plt.subplot2grid((self.rows,self.columns),pos,fig = self.fig)
-        
+        ap.ax = plt.subplot2grid((self.rows,self.columns),pos,fig = self.fig, colspan=colspan, rowspan=rowspan)#,**kwargs)
+        #global run_function_safely
+        #ap.ax = run_function_safely(plt.subplot2grid, (self.rows,self.columns), pos, fig = self.fig,**kwargs)
 
         if debug.enabled and debug.level <= 2:
             print(f"Added plot {name} to position {pos}")
@@ -730,9 +740,15 @@ class apt_fig:
 
         # saves each step as a temp png
         for step in range(start, end, increment):
+            total_steps = (end-start)//increment
             save_step = step // increment # this is to make sure the steps are always incrementing by 1
+            #prints 25% progresses
+            if save_step % (total_steps //4) == 0:
+                progress = (save_step / total_steps) * 100
+                print(f"Progress: {progress:.2f}%")
             self.update_fig(step, **kwargs)
             self.fig.savefig(f"movie_plots/{save_step:05d}.png")
+        print("Progress: Finished")
 
         os.system(f"ffmpeg -y -loglevel error -r 10 -i movie_plots/%05d.png -c:v libx264 -vf fps=25 -pix_fmt yuv420p -threads 0 movies/{save_name}.mp4")
                         
@@ -762,7 +778,8 @@ class apt_fig:
     # other adding plots that wrap add_plot
     def add_colorplot(self, name = None, fld_val= None,**kwargs):
         global colorplot
-        self.add_plot(fld_val, name, colorplot, **kwargs)
+        kwargs.update({'name': name})
+        self.add_plot(fld_val, plot_function = colorplot, **kwargs)
 
     def add_lineout_plot(self, name, fld_vals,  restrictions,labels=None, second_restriction=None,data=None, **kwargs):
         global lineout_plot # this is the lineout function for plotting a lineplot
@@ -1423,3 +1440,5 @@ def EdotB_eq(name='EdotB_eq',**kwargs):
                      **kwargs
                      )
 apt_plot_types['EdotB_eq'] = EdotB_eq
+
+
