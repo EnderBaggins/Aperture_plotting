@@ -104,9 +104,9 @@ Do not change these directly.
 ##### Wrappers for add_plot:
 These functions call add_plot and just make a plot of that type. You can either specify the key value to reference a premade function or frovide a fld_func lambda function and name to create a new apt_plot object.
 
-- `add_colorplot(fld_func, name, key=None)`: adds a colorplot to the figure by calling add_plot. 
+- `add_colorplot(fld_val, name, key=None)`: adds a colorplot to the figure by calling add_plot. fld_val can be a data.key a key for apt_plot_types, or a lambda function on data. (optional data argument to set a new dataset)
 
-- `add_lineout(fld_func, name, key=None)`: adds a lineout to the figure by calling add_plot.
+- `add_lineout_plot(name, fld_vals, restrictions,labels key=None)`: adds a lineout to the figure by calling add_plot. restrictions is a tuple of axis and value ("theta", np.pi/2) for example. labels will be the reference to the line for a legend. fld_vals, restrictions, labels and data can all be a list of their respective types to plot multiple lines
 
 - `add_particle_hist(species,x_key,y_key)`: adds a particle histogram to the figure by calling add_plot. using the function particle_plot
 
@@ -119,6 +119,8 @@ Adds a plot to the figure. Saves the `apt_plot` object in the `plots` dictionary
   -  `key`: an `apt_plot` object, a string corresponding to an `apt_plot` object in `apt_plot_types`, or a string corresponding to a field value in the `data` object (e.g., `"B3"` refers to `data.B3`).
 
   - `name` (optional): The name of the plot. Defaults to the key value.
+
+  - `data` a reference to the dataset to plot. This is used when you want to plot a different dataset than the one the figure was created with. This is useful for comparing datasets. 
 
   - `pos` (optional): Specifies the grid position of the plot in the figure as a tuple (e.g., `(0, 1)` for first row, second column). The default is `None`, which adds the plot to a new column.
 
@@ -199,7 +201,6 @@ Prints the information of the figure. This includes the data object, the plots, 
 #### External Use:
 - `del_plot(name)`: Deletes a plot from the figure.
 - `move_plot(name, pos)`: Moves a plot to a new position in the figure.
-- `rescale_figure(target_size)`: Rescales the figure to the target size, maintaining the aspect ratio.
 - `set_size(xsize, ysize)`: Sets the size of the figure by calling `fig.set_size_inches`. Will also be called every time `make_fig` is called, defaulted to doing nothing.
 
 #### Internal Use (probably should not be used directly):

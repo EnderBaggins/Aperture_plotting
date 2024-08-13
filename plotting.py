@@ -63,24 +63,93 @@ debug = debugging(enabled=False)
 '''
 Defines the function that will be used to calculate the quantity
 This class will also store the arguments necessary for plotting the function
+This will hold a reference to it's data object
 '''
 class apt_plot:
-    def __init__(self,  func, name, plot_function,**kwargs):
-        self.func = func
+    def __init__(self,data, fld_val, plot_function,name=None,**kwargs):
+        ###self.func = func
         self.plot_object = None
         self.plot_function = plot_function # e.g colorplot using pcolormesh
         self.plot_type = None # plot type for use in updating i.e pcolormesh, lineplot, etc
         self.parameters = {} # all possible parameters for the plot
         self.position = None # a (row,col) tuple (starts at 0->N-1)
         self.made = False
+
         self.name = name
         self.ax = None
+        self.data=data
+        # if hasattr(data,'dataname'):
+        #     self.dataname = data.dataname
 
-
+        self._construct_plot(fld_val,**kwargs)
         self.set_default_parameters()
         self.parameters.update(kwargs) #override the defaults
     
-    
+    #construct_plot will be called with __init__ to create the plot
+    # it will account for both data.keys apt_plot_types and lambda functions
+    # to appropriately set the fld_val and name
+    def _construct_plot(self,fld_vals,**kwargs):
+        # key can be a list of multiple keys
+        # in which case there should also have been a list of fld_vals and labels
+
+        global apt_plot_types
+        #first we tackle if there is a single of each
+        if not isinstance(fld_vals,list):
+            if callable(fld_vals):
+                self.fld_val = fld_vals #as its a lambda function
+                if self.name is None:
+                    raise ValueError(f"Name must be specified for lambda function fld_val")
+            
+            elif fld_vals in apt_plot_types:
+                if self.name is None:
+                    self.fld_val,self.name = apt_plot_types[fld_vals]()#does not override name
+                else:
+                    self.fld_val,self.name = apt_plot_types[fld_vals](self.name)#overrides name
+            
+            elif fld_vals in self.data.keys:
+                self.fld_val = lambda data: getattr(data,fld_vals)
+                if self.name is None:
+                    self.name = fld_vals #since fld_vals is a string it can identify
+            elif fld_vals is None:
+                pass #This is for plotting functions that have no fld_val (i.e particle stuff)
+            else:
+                raise ValueError(f"Key {fld_vals} not found in apt_plot_types, data.keys or is not a lambda function")
+
+        # having fld_vals be a list means labels exists and is a list and data is also a list
+        # this is for lineplots where you want multiple in one subplot
+        # in general the plot_funciton you input needs to be able to deal with the list of items
+        else:
+            fld_val_list = []
+            labels = kwargs.get('labels',None)
+            if labels is None:
+                raise ValueError(f"Labels must be specified for multiple fld_vals")
+            for fld_val,label,datum in zip(fld_vals,labels,self.data):
+
+                if callable(fld_val):
+                    
+                    print(type(fld_val))
+                    fld_val_list.append(fld_val) #as its a lambda function
+                elif fld_val in apt_plot_types:
+                    print(type(fld_val))
+                    fv,name = apt_plot_types[fld_val](label)
+                    fld_val_list.append(fv)
+                    #name will be default as the label it was given
+                elif isinstance(fld_val,str) and fld_val in datum.keys:
+                    
+                    fv = lambda data: getattr(data,fld_val)
+                    fld_val_list.append(fv)
+                    #self.name = 
+                elif fld_val is None:
+                    pass #This is for plotting functions that have no fld_val (i.e particle stuff)
+                else:
+                    raise ValueError(f"Key {fld_val} not found in apt_plot_types, data.keys or is not a lambda function")
+                
+            self.fld_val = fld_val_list
+            if self.name is None:
+                raise ValueError(f"Name must be specified for multiple fld_vals")
+
+        
+        
     def set_default_parameters(self):
         self.parameters['cmap'] = 'hot_and_cold'
         self.parameters['aspect'] = 'equal'
@@ -118,8 +187,15 @@ class apt_plot:
         elif self.plot_type == "lineplot":
             # any lineplot function must specify xdata and ydata as attributes
             # of the apt_plot object and only run the plotting when linemade is false
+            
             self.plot_function(self, data, **parameters)
-            self.plot_object.set_data(self.xdata, self.ydata)
+            if isinstance(self.plot_object,list):
+                #then there is a list of different lines stores to update
+                #where xdata and ydata are also lists
+                for i, line in enumerate(self.plot_object):
+                    line.set_data(self.xdata[i], self.ydata[i])
+            else:
+                self.plot_object.set_data(self.xdata, self.ydata)
 
         else:
             raise ValueError("Update not implemented for this plot function")
@@ -139,6 +215,10 @@ class apt_plot:
                     getattr(self.ax, f"set_{param}")(parameters[param])
                 except Exception as e:
                     print(f"Could not set {param}: {e}")
+
+        if parameters.get("legend",False):
+            self.ax.legend()
+        
 
     
     '''
@@ -330,7 +410,6 @@ class apt_fig:
 
         self.parameters.update(kwargs) #override the defaults
     
-        #self._init_complete = True #This is to allow set_attr to run normally for initialization
     
     # overrides the parameters of the class object without changing them
     def override_params(self, **kwargs):
@@ -351,11 +430,6 @@ class apt_fig:
         # loading the data at the timestep
         if name == 'step':
             self.data.load(value)
-        '''
-        # only runs once the object is fully initialized
-        if '_init_complete' in self.__dict__:
-            pass
-        '''
         #This is necessary to avoid infinite recursion
         super().__setattr__(name, value)
     
@@ -381,7 +455,7 @@ class apt_fig:
         return old_rows, old_columns # in case you need them
 
     # reshapes the figure to have appropriate shape of subplots
-    def set_fig_shape(self,num_rows,num_columns):
+    def set_fig_grid(self,num_rows,num_columns):
         new_fig = plt.figure()
         #copies over the old axes
         for plot in self.plots.values():
@@ -398,7 +472,7 @@ class apt_fig:
         if debug.enabled and debug.level <= 1:
             print(f"  Reloaded figure to {num_rows}x{num_columns}, with {len(list(self.plots))+1} subplots")
     
-    def construct_plot_obj(self,key,plot_function, **kwargs):
+    '''def construct_plot_obj(self,key,plot_function, **kwargs):
         # default print type for fld obj is colorplot
         global colorplot
         if debug.enabled and debug.level <= 1:
@@ -415,25 +489,19 @@ class apt_fig:
                       , plot_function = plot_function
                       , title = title
                       , **kwargs)
-    
-    def add_plot(self,key,pos=None, plot_function = None, **kwargs):
+    '''
+    def add_plot(self,key,pos=None, plot_function = None, data=None, **kwargs):
         if plot_function is None:
             plot_function = colorplot # default plot function
-        
-        global apt_plot_types
-        plot = key
-        if isinstance(plot, str):
-            # first we check if the str is a data.keys
-            if plot in self.data.keys:
-                ap = self.construct_plot_obj(plot,plot_function, **kwargs)
-            elif plot in apt_plot_types:
-                name = kwargs.get('name', plot)
-                ap = apt_plot_types[name](**kwargs)
-            else:
-                raise ValueError(f"{plot} is not in apt_plot_types, try adding it to the dictionary")
+
+        if data is None:# allows overriding of fig data for subplot
+            data = self.data
+    
+
+        if not isinstance(key,apt_plot):
+            ap = apt_plot(data,key,plot_function, **kwargs)
         else:
-            ap = plot
-            #enforces that apt_plot_object is an apt_plot object
+            ap = key
         assert isinstance(ap, apt_plot), "plot must be a apt_plot object, try e.g EdotB() not EdotB or add datakey argument"
         
 
@@ -467,7 +535,7 @@ class apt_fig:
         # sets the self.fig to have correct shape
         # I think redundent if the number of rows and columns are unchanged
         # but I think its cleaner to make sure everything updates
-        self.set_fig_shape(self.rows,self.columns)
+        self.set_fig_grid(self.rows,self.columns)
             
         # add the plot to the dictionary
         self.plots[name] = ap
@@ -501,7 +569,7 @@ class apt_fig:
 
         # reshapes the figure
         # again I think redundant if the number of rows and columns are unchanged
-        self.set_fig_shape(self.rows,self.columns)
+        self.set_fig_grid(self.rows,self.columns)
     
     def move_plot(self, name, pos):
         #first asserts that the plot exists
@@ -517,7 +585,7 @@ class apt_fig:
 
         #moves the plot to the new position
         self.plots[name].position = pos
-        self.set_fig_shape(self.rows,self.columns)
+        self.set_fig_grid(self.rows,self.columns)
         if debug.enabled and debug.level <= 2:
             print(f"Moved plot {name} to position {pos}")
 
@@ -569,7 +637,7 @@ class apt_fig:
         if self.made:
             plt.close(self.fig)
             # then redo the figure
-            self.set_fig_shape(self.rows,self.columns)
+            self.set_fig_grid(self.rows,self.columns)
 
         # makes all parameters overriding the defaults with kwargs
         parameters = self.override_params(**kwargs)
@@ -669,24 +737,6 @@ class apt_fig:
         os.system(f"ffmpeg -y -loglevel error -r 10 -i movie_plots/%05d.png -c:v libx264 -vf fps=25 -pix_fmt yuv420p -threads 0 movies/{save_name}.mp4")
                         
 
-   #scales the figure to be more close to target_size while keeping aspect ratio
-    def rescale_figure(self,target_size):
-        width = self.fig.get_figwidth()
-        height = self.fig.get_figheight()
-        aspect = width/height
-
-        if aspect > 1:
-            new_width = target_size
-            new_height = target_size/aspect
-        else:
-            new_height = target_size
-            new_width = target_size*aspect
-        
-        self.fig.set_figwidth(new_width)
-        self.fig.set_figheight(new_height)
-        if debug.enabled and debug.level <= 1:
-            print(f"  Rescaled figure from {width}x{height} to {new_width}x{new_height}")
-   
     
     def set_fontsize(self, **kwargs):
         parameters = self.override_params(**kwargs)
@@ -710,42 +760,77 @@ class apt_fig:
                 self.plots[plot].parameters[name] = value
 
     # other adding plots that wrap add_plot
-    def add_colorplot(self, fld_func= None, name = None, key = None,**kwargs):
+    def add_colorplot(self, name = None, fld_val= None,**kwargs):
         global colorplot
-        if fld_func is not None:
-            assert callable(fld_func), "fld_func must be a lambda function: lambda data: (function of data.keys)"
-            if name is None:
-                raise ValueError("name must be specified if fld_func is given")
-            else:
-                aplot = apt_plot(fld_func, name, colorplot, **kwargs)
-                self.add_plot(aplot,**kwargs)
-        elif key is not None:
-            # just add_plot with colorplot
-            kwargs['name'] = name # so it passes name through nicely
-            self.add_plot(key, plot_function=colorplot, **kwargs)
-        else:
-            raise NameError("fld_func/name or key must be specified")
+        self.add_plot(fld_val, name, colorplot, **kwargs)
 
-    def add_lineout_plot(self, fld_func= None, name = None, key = None,theta = np.pi/2, **kwargs):
+    def add_lineout_plot(self, name, fld_vals,  restrictions,labels=None, second_restriction=None,data=None, **kwargs):
         global lineout_plot # this is the lineout function for plotting a lineplot
-        
-        if fld_func is not None:
-            assert callable(fld_func), "fld_func must be a lambda function: lambda data: (function of data.keys)"
-            if name is None:
-                raise ValueError("name must be specified if fld_func is given")
-            else:
-                aplot = apt_plot(fld_func, name, lineout_plot, **kwargs)
-                self.add_plot(aplot,**kwargs)
-        elif key is not None:
-            # just add_plot with colorplot
-            # add name to kwargs to pass correctly
-            kwargs['name'] = name
-            self.add_plot(key, plot_function = lineout_plot, **kwargs)
+
+        #restrictions must be either a list of tuples or a tuple
+        #second_restriction is entirely for a 3D dataset to cut down to 1D line
+        #makes everything a list for purposes of iterating multiple lineouts on one plot
+        if not isinstance(fld_vals, list):
+            fld_vals = [fld_vals]
+
+        if not isinstance(labels, list):
+            labels = [labels]
+        if isinstance(restrictions, tuple):
+            restrictions = [restrictions]
+        if len(restrictions) != len(fld_vals):
+            #use the same restrictions for all lineouts
+            restrictions = [restrictions] * len(fld_vals)
         else:
-            raise NameError("fld_func/name or key must be specified")
-    def add_particle_hist(self, species, x_key, y_key,**kwargs):
-        # first checking species is valid
+            assert all(isinstance(restriction, tuple) for restriction in restrictions), "restrictions must be a list of tuples"
+        # similar for second_restriction
+        if second_restriction is not None:
+            if isinstance(second_restriction, tuple):
+                second_restriction = [second_restriction]
+            else:
+                assert all(isinstance(restriction, tuple) for restriction in second_restriction), "second_restriction must be a list of tuples"
         
+        
+        # assert that the lengths of the lists are the same
+        assert len(fld_vals) == len(labels) == len(restrictions), "fld_vals, labels, and restrictions must be the same length (they are 1 to 1)"
+
+        #asserting that fld_val is either a lambda function of data or a key in data/plot_types
+        for fld_val in fld_vals:
+            if callable(fld_val):
+                pass
+            elif fld_val in self.data.keys:#stored data values
+                pass
+            elif fld_val in apt_plot_types:#stored apt_plot functions
+                pass
+            else:
+                raise ValueError(f"{fld_val} is not a key in data/apt_plot_types or a lambda function of data")
+
+        if data is None:
+            data = [self.data] * len(fld_vals) #if data is not specified, it is the same for all lineouts
+        elif not isinstance(data, list):
+            data = [data] * len(fld_vals) #if data is not a list, it is the same for all lineouts
+        elif len(data) != len(fld_vals):
+            raise ValueError("If multiple data input then must be same length as fld_vals")
+        if labels is None:
+            for fld_val in fld_vals:
+                if not isinstance(fld_val, str):
+                    raise ValueError("If labels is not specified, fld_vals must be strings, if you do a lambda please supply labels as well")
+            labels = fld_vals
+        #creating the plot object with the lists (apt_plot account for lists seperately)
+        ap = apt_plot(data, fld_vals, name=name,plot_function=lineout_plot,labels=labels, **kwargs)
+        
+        #saving restriction information
+        ap.restrictions = restrictions
+        ap.second_restriction = second_restriction
+        
+
+        self.add_plot(ap, **kwargs)
+        
+
+    def add_particle_hist(self, species, x_key, y_key,data=None,**kwargs):
+        # first checking species is valid
+        if data is None:
+            data = self.data
+
         if species not in ["p", "e", "electron", "positron"] and species not in [0, 1]:
             raise ValueError(f"Species {species} is not valid, must be 'e' or 'p' or 0 or 1, to add ion change add_particle_plot in apt_fig")
         global particle_hist
@@ -755,7 +840,7 @@ class apt_fig:
         kwargs.setdefault("xlabel", x_key)
         kwargs.setdefault("ylabel", y_key)   
 
-        aplot = apt_plot(None, plot_function = particle_hist, **kwargs)
+        aplot = apt_plot(data,None, plot_function = particle_hist, **kwargs)
 
         #Giving correct parameters for the particle_plot function to access
         aplot.y_key = y_key
@@ -764,7 +849,8 @@ class apt_fig:
 
         self.add_plot(aplot,**kwargs)
 
-    def add_spectrum(self, species,logscale= False, **kwargs):
+    def add_spectrum(self,name, species,logscale= False,data=None, **kwargs):
+        labels = kwargs.get('labels',None)
 
         # first convert to list of species
         if isinstance(species, str):
@@ -784,10 +870,26 @@ class apt_fig:
         else:
             kwargs.setdefault("ylabel", "$dN/dE$")
         
+        if data is None:
+            data = [self.data] * len(species) #if data is not specified, it is the same for all lineouts
+        elif not isinstance(data, list):
+            data = [data] * len(species) #if data is not a list, it is the same for all lineouts
+        elif len(data) != len(species):
+            raise ValueError("If multiple data input then must be same length as species")
+        if labels is None:
+            labels = []
+            for specie,datum in zip(species,data):
+                if specie == "e" or specie == 0:
+                    labels.append("Electron")
+                elif specie == "p" or specie == 1:
+                    labels.append("Positron")
+                else:
+                    labels.append(f"Species {specie}")
 
-        name = kwargs.get('name', f"{species}_spectrum")
+        #name = kwargs.get('name', f"{species}_spectrum")
+        fld_vals = [None] * len(species)
         kwargs.update({'name': name}) #need to update so kwargs can pass to add_plot nicely
-        aplot = apt_plot(None, plot_function = spectrum_plot, **kwargs)
+        aplot = apt_plot(data, fld_vals, plot_function = spectrum_plot,labels = labels, **kwargs)
 
         #Giving correct parameters for the spectrum_plot function to access
         aplot.species = species
@@ -815,9 +917,23 @@ class apt_fig:
         output.append(f"**{afig.unique_ident} has the following plots:**\n")
         for name, plot in afig.plots.items():
             output.append(f"  **{name}**\n")
+            if hasattr(plot.data, 'name'):
+                output.append(f"    Data: {plot.data.name}")
+            if isinstance(plot.data,list):
+                for i,data in enumerate(plot.data):
+                    output.append(f"    {i+1}: Data: {data.name}")
+            #output.append(f"  data: {plot.data}")
             output.append(f"    Position: {plot.position}")
             output.append(f"    Parameters:")
             output.append(f"{format_parameters(extract_parameters(plot))}\n")
+            if hasattr(plot, 'restrictions'):
+                output.append(f"    **Restrictions:**")
+                for i, restriction in enumerate(plot.restrictions):
+                    output.append(f"      {i+1}: {restriction}")
+                if plot.second_restriction is not None:
+                    output.append(f"    **Second Restriction:**")
+                    for i, restriction in enumerate(plot.second_restriction):
+                        output.append(f"      {i+1}: {restriction}")
             
         output.append(f"**Post-processing functions:**\n")
         for name, post in afig.post_process.items():
@@ -928,7 +1044,7 @@ def colorplot(apt_plot_object,data,**kwargs):
     
     warnings.filterwarnings("ignore", category=UserWarning, message="The input coordinates to pcolormesh are interpreted as cell centers.*")
     # passing params into pcolormesh crashes, so we need to remove problematic ones with run_function_safely
-    c = run_function_safely(ax.pcolormesh, data.x1, data.x2, ap.func(data), **params)
+    c = run_function_safely(ax.pcolormesh, data.x1, data.x2, ap.fld_val(data), **params)
     
     #include the colorbar
     divider = make_axes_locatable(ax)
@@ -949,39 +1065,90 @@ def colorplot(apt_plot_object,data,**kwargs):
 def lineout_plot(apt_plot_object,data,**kwargs):
     ap = apt_plot_object
     ax = ap.ax
-
-    theta = kwargs.get('theta',np.pi/2)
-    # mainly to test line_plots
-    # I can figure out automated later
+    labels = kwargs.get('labels', None)
+    #checks if restriced exists
+    if hasattr(ap, 'restrictions'):
+        restrictions = ap.restrictions
+    else:
+        raise ValueError("Lineout plot must have restrictions")
     
-    #first finding the index of the theta ray
-    ths = data._theta # just the vector of theta values
-    line_index = np.argmin(np.abs(ths-theta))
+    #checks if second_restriction exists
+    if getattr(ap, 'second_restriction') is not None:
+        second_restriction = ap.second_restriction
+        raise ValueError("3D with second_restrictions not implemented yet")
+    
+    
+    fld_vals = ap.fld_val
+    datas = ap.data
 
-    # from the func we need to isolate the equator
-    func = ap.func(data) # the fld function of the data
-    line = func[line_index] #isolated to theta lineout plane
+    #assert same length
+    if len(fld_vals) != len(restrictions) != len(datas):
+        raise ValueError("fld_vals and restrictions must be the same length")
 
-    rs = data._rv[line_index]
+    xdata=[]
+    ydata=[]
+
+    for restriction,fld_val,data in zip(restrictions,fld_vals,datas):
+        
+        res_ax = restriction[0]# the axis to restrict
+        val = restriction[1]# the restricting value
+
+        #look at each case separately
+        if res_ax == "theta":
+            restricted_index = np.argmin(np.abs(data._theta-val))
+            ys = fld_val(data)[restricted_index,:]
+            xs = data._r
+            
+        elif res_ax == "r":
+            restricted_index = np.argmin(np.abs(data._r-val))
+            ys = fld_val(data)[:,restricted_index]
+            xs = data._theta
+        else:
+            raise ValueError("Lineout plot must have restrictions on theta or r, if you did ._theta just do .r")
+        '''
+        axdata = getattr(data,res_ax)
+        restricted_index = np.argmin(np.abs(axdata-val))
+        #main issue is restricted index finds a single value
+        # i need the whole row/column
+        
+        fld_val = fld_val(data) # the fld function of the data
+        line = fld_val[restricted_index] #isolated to restricted index
+
+        if res_ax is 'x1':
+            line = fld_val[restricted_index:]
+            rem_ax = 'x2'
+            xs = getattr(data,rem_ax)[restricted_index,:]
+        elif res_ax is 'x2':
+            line = fld_val[:,restricted_index]
+            rem_ax = 'x1'
+            xs = getattr(data,rem_ax)[:,restricted_index]
+        else:
+            raise ValueError("Lineout plot must have restrictions on x1 or x2 (3D not implemented yet), if you did ._theta just do .x2")
+        '''
+        xdata.append(xs)
+        ydata.append(ys)
 
     # save values for use in updating
     
     ap.plot_type = 'lineplot' #to allow for lineplot updating
-    ap.xdata = rs
-    ap.ydata = line
-
+    ap.xdata = xdata
+    ap.ydata = ydata
     # now we plot the line
     # this allows us to call the function again to update the line data
     # without redrawing the whole plot as xdata,ydata is the pertinent data
     if hasattr(ap, 'linemade'):
         pass
     else:
-        
+        plot_object = []
         params = match_param(kwargs, ax.plot)
-        line, = run_function_safely(ax.plot,rs, line, **params)
+        for i in range(len(xdata)):
+            label = labels[i] if labels is not None else None
+            print(label)
+            line, = run_function_safely(ax.plot,xdata[i], ydata[i],label=label, **params)
+            plot_object.append(line)
         
         ap.linemade = True
-        return line
+        return plot_object
 
 # %%
 def particle_hist(apt_plot_object,data,**kwargs):
@@ -1034,9 +1201,9 @@ def spectrum_plot(apt_plot_object,data,**kwargs):
         species = [species]
         # this is to enable multiple species to be plotted
     for specie in species:
-        if specie == "p"or "positron":
+        if specie == "p"or "positron" or 1:
             specie = 1
-        elif specie == "e" or "electron":
+        elif specie == "e" or "electron" or 0:
             specie = 0
         else:
             raise ValueError(f"Species {specie} is not valid, must be 'e' or 'p', or 0 or 1")
@@ -1048,7 +1215,8 @@ def spectrum_plot(apt_plot_object,data,**kwargs):
         kwargs.setdefault('bins', 300)
         if logscale:
             #override the bins which is defaulted to a number to a logarithmic space
-            bins = run_function_safely(np.logspace,np.log10(energy.min()), np.log10(energy.max()), num = kwargs.get("bins"),**kwargs)
+            #bins = run_function_safely(np.logspace,np.log10(energy.min()), np.log10(energy.max()), num = kwargs.get("bins"))#,**kwargs)
+            bins = np.logspace(np.log10(energy.min()), np.log10(energy.max()), num = kwargs.get("bins"))
             kwargs['bins'] = bins
         
         #making the histogram
@@ -1204,7 +1372,12 @@ apt_plot_types = {} # a dict of possible
 # If you want to add one, you need to add it to this dictionary
 # or else call add_plot(EdotB) as oppossed to add_plot("EdotB")
 
-def EdotB(name='EdotB',**kwargs):
+def EdotB(name="EdotB"):
+    fld_val = lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3
+    return (fld_val,name)
+
+
+def EdotB22(name='EdotB',**kwargs):
     vmin = kwargs.get('vmin', -1) #default values
     vmax = kwargs.get('vmax', 1)
     return apt_plot(
@@ -1244,7 +1417,7 @@ def EdotB_eq(name='EdotB_eq',**kwargs):
     return apt_plot(
                      lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3,
                      name = name,
-                     plot_function = lineout,
+                     plot_function = lineout_plot,
                      xlabel = "r",
                      ylabel = r"$\vec{E} \cdot \vec{B}$",
                      **kwargs
