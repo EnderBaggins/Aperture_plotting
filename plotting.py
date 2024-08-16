@@ -58,6 +58,16 @@ class debugging:
 
 debug = debugging(enabled=False)
 
+# will print all the open matplotlib figures
+def check_open_figs():
+    fig_nums = plt.get_fignums()
+
+    # Print details of all open figures
+    for fig_num in fig_nums:
+        fig = plt.figure(fig_num)
+        #plt.show()
+        print(f"Figure {fig_num}: {fig}")
+
 # %%
 ################################################################################
 '''
@@ -66,7 +76,7 @@ This class will also store the arguments necessary for plotting the function
 This will hold a reference to it's data object
 '''
 class apt_plot:
-    def __init__(self,data, fld_val, plot_function,name=None,**kwargs):
+    def __init__(self,name,fld_val,data,  plot_function,**kwargs):
         ###self.func = func
         self.plot_object = None
         self.plot_function = plot_function # e.g colorplot using pcolormesh
@@ -124,19 +134,18 @@ class apt_plot:
             if labels is None:
                 raise ValueError(f"Labels must be specified for multiple fld_vals")
             for fld_val,label,datum in zip(fld_vals,labels,self.data):
-
+                
                 if callable(fld_val):
-                    
-                    print(type(fld_val))
                     fld_val_list.append(fld_val) #as its a lambda function
+
                 elif fld_val in apt_plot_types:
-                    print(type(fld_val))
                     fv,name = apt_plot_types[fld_val](label)
                     fld_val_list.append(fv)
                     #name will be default as the label it was given
+
                 elif isinstance(fld_val,str) and fld_val in datum.keys:
-                    
                     fv = lambda data: getattr(data,fld_val)
+                    
                     fld_val_list.append(fv)
                     #self.name = 
                 elif fld_val is None:
@@ -151,11 +160,11 @@ class apt_plot:
         
         
     def set_default_parameters(self):
-        self.parameters['cmap'] = 'hot_and_cold'
-        self.parameters['aspect'] = 'equal'
+        #self.parameters['cmap'] = 'hot_and_cold'
+        #self.parameters['aspect'] = 'equal'
         self.parameters['fontsize'] = 24
 
-    # overrides the parameters of the class object without changing them
+    # overrides the parameters of the class object without overwriting them
     def override_params(self, **kwargs):
         parameters = self.parameters.copy()
         parameters.update(kwargs)
@@ -172,7 +181,7 @@ class apt_plot:
         parameters = self.override_params(**kwargs)
         
         # creates the plot_object desired
-        self.plot_object = self.plot_function(self,data, **parameters)
+        self.plot_object = self.plot_function(self, **parameters)
         # sets the parameters of the axis
         self.set_plot_attr(**parameters)
 
@@ -188,7 +197,7 @@ class apt_plot:
             # any lineplot function must specify xdata and ydata as attributes
             # of the apt_plot object and only run the plotting when linemade is false
             
-            self.plot_function(self, data, **parameters)
+            self.plot_function(self, **parameters)
             if isinstance(self.plot_object,list):
                 #then there is a list of different lines stores to update
                 #where xdata and ydata are also lists
@@ -243,6 +252,7 @@ class apt_plot:
             "ylim",
             "xscale",
             "yscale",
+            "rasterized",
            # "xticks", #these would copy old ones, if you change the shape it looks weird
             #"yticks",
             #"xticklabels",
@@ -384,10 +394,9 @@ this will have children objects that will store the information necessary to plo
 
 class apt_fig:
     def __init__(self,data, unique_ident= "default_identifier", **kwargs):
-
+        global aperture_figure_objects
         #ensures uniqueness of the object
         # i.e you can recreate the same object and it overrides the old one
-        global aperture_figure_objects
         self.unique_ident = unique_ident
         if aperture_figure_objects.get(unique_ident) is not None:
             plt.close(aperture_figure_objects[unique_ident].fig)
@@ -410,7 +419,9 @@ class apt_fig:
 
         self.parameters.update(kwargs) #override the defaults
     
-    
+        self.add_plot_functions = {"add_colorplot": self.add_colorplot, "add_lineout_plot": self.add_lineout_plot
+                                   , "add_particle_hist": self.add_particle_hist, "add_spectrum_plot": self.add_spectrum_plot}
+        
     # overrides the parameters of the class object without changing them
     def override_params(self, **kwargs):
         parameters = self.parameters.copy()
@@ -468,79 +479,61 @@ class apt_fig:
 
         plt.close(self.fig) #closes the old figure
         self.fig = new_fig
-        #self.fig.set_label(self.unique_ident)
 
         if debug.enabled and debug.level <= 1:
             print(f"  Reloaded figure to {num_rows}x{num_columns}, with {len(list(self.plots))+1} subplots")
     
-    '''def construct_plot_obj(self,key,plot_function, **kwargs):
-        # default print type for fld obj is colorplot
-        global colorplot
-        if debug.enabled and debug.level <= 1:
-            print(f"Constructing plot object for {key}")
-            
-        name = kwargs.get('name', key)
-        title = kwargs.get('title', key)
-        # remove from kwargs
-        kwargs.pop('name', None)
-        kwargs.pop('title', None)
-
-        return apt_plot(lambda data: getattr(data, key)
-                      , name = name
-                      , plot_function = plot_function
-                      , title = title
-                      , **kwargs)
-    '''
-    def add_plot(self,key,pos=None, plot_function = None, data=None, subpos = None, **kwargs):
-        #subpos is a grid position on the main position (i.e grid in grid)
-
-        if plot_function is None:
-            plot_function = colorplot # default plot function
+    def _add_plot(self, name, fld_val, data=None, pos=None, plot_function = globals()["colorplot"],  **kwargs):
 
         if data is None:# allows overriding of fig data for subplot
             data = self.data
     
-
-        if not isinstance(key,apt_plot):
-            ap = apt_plot(data,key,plot_function, **kwargs)
+        if not isinstance(fld_val,apt_plot):
+            #if the plot is not a apt_plot object, make it one
+            try:
+                ap = apt_plot(name, fld_val, data ,plot_function, **kwargs)
+            except Exception as e:
+                raise ValueError("Failed to create apt_plot object {e}")
         else:
-            ap = key
-        assert isinstance(ap, apt_plot), "plot must be a apt_plot object, try e.g EdotB() not EdotB or add datakey argument"
+            ap = fld_val
         
-
-        name = ap.name
         #if the plot already exists, raise an error
         if name in self.plots:
-            raise ValueError(f"{name} already exists as plot (if you are trying to plot the same data with key but with different plot_function), try adding name to change the name")
+            raise ValueError(f"{name} already exists as plot, change name or delete old one")
 
-        # if no position is given, add to a new column on top
-        # consider making it fill empty spots first
+        # if no position is given, fill in the first empty slot
+        # if there are no empty slots then add a new column
         if pos is None:
             #check if there are no plots
             if len(self.plots) == 0:
                 pos = (0,0)
             else:
-                self.columns += 1
-                if self.check_position_taken((0,self.columns-1)):
-                    pos = (0,self.columns)
-                else:
+                found_empty_slot = False
+                for col in range(self.columns):
+                    for row in range(self.rows):
+                        if not self.check_position_taken((row,col)):
+                            pos = (row,col)
+                            found_empty_slot = True
+                            break
+                    if found_empty_slot:
+                        break
+                if not found_empty_slot:
+                    self.columns += 1
                     pos = (0,self.columns-1)
-        
-        #resize the shape if necessary
-        self.resize_row_col(pos)
-        
-        # check if the position is already taken
-        if self.check_position_taken(pos):
-            # consider making this move the old plot to a new position
-            # or this plot to a nearby one
-            raise ValueError(f"Position {pos} is already taken")
+        else:
+            assert isinstance(pos, tuple), "Position must be a tuple"
+            # check if the position is already taken
+            if self.check_position_taken(pos):
+                raise ValueError(f"Position {pos} is already taken")
 
-        # sets the self.fig to have correct shape
-        # I think redundent if the number of rows and columns are unchanged
-        # but I think its cleaner to make sure everything updates
+        #resize the shape if necessary
+        old_rows, old_columns =self.resize_row_col(pos)
+    
+        # sets the figure grid shape if the rows or columns have changed
+        #if old_rows != self.rows or old_columns != self.columns:
         self.set_fig_grid(self.rows,self.columns)
         
-        #allowing for subgrid
+        #allowing for grid overlap using matplotlib's existing method
         colspan = kwargs.get('colspan',1)
         rowspan = kwargs.get('rowspan',1)
         ap.colspan = colspan
@@ -549,10 +542,8 @@ class apt_fig:
         # add the plot to the dictionary
         self.plots[name] = ap
         ap.position = pos
-        #connecting the ax to the position
-        ap.ax = plt.subplot2grid((self.rows,self.columns),pos,fig = self.fig, colspan=colspan, rowspan=rowspan)#,**kwargs)
-        #global run_function_safely
-        #ap.ax = run_function_safely(plt.subplot2grid, (self.rows,self.columns), pos, fig = self.fig,**kwargs)
+        #ccreating the physical matplotlib subplot in the appropriate position
+        ap.ax = plt.subplot2grid((self.rows,self.columns),pos,fig = self.fig, colspan=colspan, rowspan=rowspan)
 
         if debug.enabled and debug.level <= 2:
             print(f"Added plot {name} to position {pos}")
@@ -564,8 +555,7 @@ class apt_fig:
         
         del_plot = self.plots[name]
 
-        #now we need to see if we can shrink the figure
-        # I want the largest row and column from plot positions
+        # I want the largest row and column from plot positions to shrink the grid
         for plot in self.plots.values():
             if plot == del_plot:
                 continue
@@ -618,20 +608,20 @@ class apt_fig:
         for post in apt_post_obj:
             if isinstance(post, str):
                 if post in apt_post_types:
-                    ap = apt_post_types[post](**kwargs)
+                    apo = apt_post_types[post](**kwargs)
             else:
-                ap = post
-            assert isinstance(ap, apt_post), "apt_post_obj must be a apt_post object"
+                apo = post
+            assert isinstance(apo, apt_post), "apt_post_obj must be a apt_post object"
 
-            name = ap.name
+            name = apo.name
             if name in self.post_process:
                 raise ValueError(f"{name} already exists as post process")
             
-            self.post_process[name] = ap
-            ap.post_plots = post_plots
+            self.post_process[name] = apo
+            apo.post_plots = post_plots
             
             if debug.enabled and debug.level <= 2:
-                print(f"Added post processing function {name}")
+                print(f"Added post processing function {name} to {add_to}")
 
     def del_post(self, name):
         if name not in self.post_process:
@@ -640,13 +630,14 @@ class apt_fig:
         if debug.enabled and debug.level <= 2:
             print(f"Deleted post processing function {name}")
        
-    # this just updates the figure with whatever is in the plots
+    # This is the main plotting function, everything beforehand is setup, this creates everything you setup
     def make_fig(self, **kwargs): 
         # first if it is already made, close the figure and remake it
         # this is to stop drawing over the old figure
         if self.made:
             plt.close(self.fig)
             # then redo the figure
+            # This might result in some attributes not being saved, I haven't run into problems yet
             self.set_fig_grid(self.rows,self.columns)
 
         # makes all parameters overriding the defaults with kwargs
@@ -654,6 +645,7 @@ class apt_fig:
         
         if kwargs.get("step",None) is not None:
             self.step = kwargs["step"]
+
         #first make all the plots
         for plot in self.plots.values():
             plot.make_plot(self.data, **parameters)
@@ -673,8 +665,8 @@ class apt_fig:
         self.made = True # marks that the figure has been made
         return self.fig
     
-
-    def set_size(self, xsize = None,ysize = None,**kwargs):
+    # uses matplotlib's set_size_inches method, just a simple wrapper to use set_size_inches with my code
+    def set_size(self, xsize = None, ysize = None,**kwargs):
 
         if xsize is not None and ysize is not None:
             shape = [xsize, ysize]
@@ -687,14 +679,17 @@ class apt_fig:
         if shape is not None:
             self.fig.set_size_inches(shape,**kwargs)
         
-
+    #updates the fig with a new step (not remaking the figure) so hopefully quicker
     def update_fig(self, step = None,set_plot_attr=False, **kwargs):
+        parameters = self.override_params(**kwargs)
 
         if step is not None:
             self.step = step
+            # this will also update data to new step 
+            # so plot references to data will also be updated
 
-        parameters = self.override_params(**kwargs)
-        # updates all the basic plots
+
+        # updates all the subplots
         for plot in self.plots.values():
             plot.update_plot(self.data, **parameters)
             if set_plot_attr:
@@ -748,10 +743,9 @@ class apt_fig:
                 print(f"Progress: {progress:.2f}%")
             self.update_fig(step, **kwargs)
             self.fig.savefig(f"movie_plots/{save_step:05d}.png")
-        print("Progress: Finished")
 
         os.system(f"ffmpeg -y -loglevel error -r 10 -i movie_plots/%05d.png -c:v libx264 -vf fps=25 -pix_fmt yuv420p -threads 0 movies/{save_name}.mp4")
-                        
+        print(f"Progress: Movie Finished saved to {os.getcwd()}/movies/{save_name}.mp4")
 
     
     def set_fontsize(self, **kwargs):
@@ -766,22 +760,36 @@ class apt_fig:
         for plot in self.plots.values():
             plot.set_fontsize(**parameters)
 
+    # adds parameters to the input plots (this overwrites the currently existing parameters)
     def add_parameters(self, plots, **kwargs):
         if plots == "all":
             plots = list(self.plots)
         elif isinstance(plots, str):
             plots = [plots]
-        for name,value in kwargs.items():
-            for plot in plots:
-                self.plots[plot].parameters[name] = value
+        
+        for plot in plots:
+            assert plot in self.plots, f"{plot} is not a plot in the figure"
+            for name,value in kwargs.items():
+                    self.plots[plot].parameters[name] = value
 
     # other adding plots that wrap add_plot
-    def add_colorplot(self, name = None, fld_val= None,**kwargs):
-        global colorplot
-        kwargs.update({'name': name})
-        self.add_plot(fld_val, plot_function = colorplot, **kwargs)
 
-    def add_lineout_plot(self, name, fld_vals,  restrictions,labels=None, second_restriction=None,data=None, **kwargs):
+    # the classic 2d colorplot of a fld_val on the space
+    def add_colorplot(self, name, fld_val= None,data= None, **kwargs):
+        global colorplot
+
+        if data is None:
+            data = self.data
+        if isinstance(fld_val, list):
+            raise ValueError("fld_val must be a single key for colorplot")
+        # sets defaults for colorplot can be overwritten by kwargs
+        kwargs.setdefault("cmap", "hot_and_cold")
+        kwargs.setdefault("aspect", "equal")
+        kwargs.setdefault("include_colorbar", True)
+        ap = apt_plot(name, fld_val, data, plot_function = colorplot, **kwargs)
+        self._add_plot(name, ap, **kwargs)
+
+    def add_lineout_plot(self, name, fld_vals,  restrictions, labels=None, second_restriction=None,data=None, **kwargs):
         global lineout_plot # this is the lineout function for plotting a lineplot
 
         #restrictions must be either a list of tuples or a tuple
@@ -797,6 +805,7 @@ class apt_fig:
         if len(restrictions) != len(fld_vals):
             #use the same restrictions for all lineouts
             restrictions = [restrictions] * len(fld_vals)
+            #print("Using the same restrictions for all lineouts")
         else:
             assert all(isinstance(restriction, tuple) for restriction in restrictions), "restrictions must be a list of tuples"
         # similar for second_restriction
@@ -817,57 +826,61 @@ class apt_fig:
             elif fld_val in self.data.keys:#stored data values
                 pass
             elif fld_val in apt_plot_types:#stored apt_plot functions
+                #print(f"Using {fld_val} as a plot type")
                 pass
             else:
                 raise ValueError(f"{fld_val} is not a key in data/apt_plot_types or a lambda function of data")
 
+        #data handling
         if data is None:
             data = [self.data] * len(fld_vals) #if data is not specified, it is the same for all lineouts
         elif not isinstance(data, list):
             data = [data] * len(fld_vals) #if data is not a list, it is the same for all lineouts
         elif len(data) != len(fld_vals):
             raise ValueError("If multiple data input then must be same length as fld_vals")
+        
+        #labels handling
         if labels is None:
             for fld_val in fld_vals:
                 if not isinstance(fld_val, str):
                     raise ValueError("If labels is not specified, fld_vals must be strings, if you do a lambda please supply labels as well")
             labels = fld_vals
         #creating the plot object with the lists (apt_plot account for lists seperately)
-        ap = apt_plot(data, fld_vals, name=name,plot_function=lineout_plot,labels=labels, **kwargs)
+        #ap = apt_plot(data, fld_vals, name=name,plot_function=lineout_plot,labels=labels, **kwargs)
+        ap = apt_plot(name, fld_vals, data, plot_function = lineout_plot, labels = labels, **kwargs)
         
         #saving restriction information
         ap.restrictions = restrictions
         ap.second_restriction = second_restriction
         
-
-        self.add_plot(ap, **kwargs)
+        #adds to afig
+        self._add_plot(name, ap, **kwargs)
         
 
-    def add_particle_hist(self, species, x_key, y_key,data=None,**kwargs):
-        # first checking species is valid
+    def add_particle_hist(self,name, species, x_key, y_key,data=None,**kwargs):
+        global particle_hist
+
         if data is None:
             data = self.data
 
-        if species not in ["p", "e", "electron", "positron"] and species not in [0, 1]:
-            raise ValueError(f"Species {species} is not valid, must be 'e' or 'p' or 0 or 1, to add ion change add_particle_plot in apt_fig")
-        global particle_hist
+        if species not in ["p", "e", "electron", "positron","i","ion"] and species not in [0, 1,2]:
+            raise ValueError(f"Species {species} is not valid, must be 'e' or 'p' or 'i' or 0 or 1 or 2")
 
-        name = kwargs.get('name', f"{y_key}_v_{x_key}")
-        kwargs.update({'name': name})
         kwargs.setdefault("xlabel", x_key)
         kwargs.setdefault("ylabel", y_key)   
 
-        aplot = apt_plot(data,None, plot_function = particle_hist, **kwargs)
+        ap = apt_plot(name, None, data, plot_function = particle_hist, **kwargs)
 
         #Giving correct parameters for the particle_plot function to access
-        aplot.y_key = y_key
-        aplot.x_key = x_key
-        aplot.species = species
+        ap.y_key = y_key
+        ap.x_key = x_key
+        ap.species = species
 
-        self.add_plot(aplot,**kwargs)
+        self._add_plot(name, ap,**kwargs)
 
-    def add_spectrum(self,name, species,logscale= False,data=None, **kwargs):
-        labels = kwargs.get('labels',None)
+    def add_spectrum_plot(self,name, species,data=None,logscale= False, **kwargs):
+        global spectrum_plot
+        
 
         # first convert to list of species
         if isinstance(species, str):
@@ -877,11 +890,11 @@ class apt_fig:
         elif isinstance(species, list):
             pass
         else:
-            raise ValueError(f"Species {species} is not valid, must be 'e' or 'p' or 0 or 1, to add ion change add_spectrum in apt_fig")
+            raise ValueError(f"Species {species} is not valid, must be 'e' or 'p' or 'i' or 0 or 1 or 2, to add ion change add_spectrum in apt_fig")
         
-        global spectrum_plot
         
         kwargs.setdefault("xlabel", "$E$")
+
         if logscale:
             kwargs.setdefault("ylabel", "$EdN/dE$")
         else:
@@ -893,6 +906,8 @@ class apt_fig:
             data = [data] * len(species) #if data is not a list, it is the same for all lineouts
         elif len(data) != len(species):
             raise ValueError("If multiple data input then must be same length as species")
+        
+        labels = kwargs.get('labels',None)
         if labels is None:
             labels = []
             for specie,datum in zip(species,data):
@@ -900,19 +915,20 @@ class apt_fig:
                     labels.append("Electron")
                 elif specie == "p" or specie == 1:
                     labels.append("Positron")
+                elif specie == "i" or specie == 2:
+                    labels.append("Ion")
                 else:
                     labels.append(f"Species {specie}")
 
-        #name = kwargs.get('name', f"{species}_spectrum")
-        fld_vals = [None] * len(species)
-        kwargs.update({'name': name}) #need to update so kwargs can pass to add_plot nicely
-        aplot = apt_plot(data, fld_vals, plot_function = spectrum_plot,labels = labels, **kwargs)
+        fld_vals = [None] * len(species) # no fld_val for spectrum plot but needed for apt_plot
+        
+        ap = apt_plot(name, fld_vals, data, plot_function = spectrum_plot, labels = labels, **kwargs)
 
         #Giving correct parameters for the spectrum_plot function to access
-        aplot.species = species
-        aplot.logscale = logscale
+        ap.species = species
+        ap.logscale = logscale
 
-        self.add_plot(aplot,**kwargs)
+        self._add_plot(name,ap,**kwargs)
 
     def print_info(self):
         afig = self
@@ -961,6 +977,77 @@ class apt_fig:
         
         display(Markdown("\n".join(output)))
 
+    def print_options(self):
+        afig = self
+        from IPython.display import display, Markdown
+
+        output = []
+        output.append(f"**{afig.unique_ident}:** \n")
+        two_line = 0
+        output.append(f"**add_plot_functions:** \n")
+        output.append("Found in afig.add_plot_functions\n")
+        for function in afig.add_plot_functions:
+            output.append(f"    {function}")
+        
+        output.append(f"**apt_post_types:** \n")
+        output.append("Found in apt_post_types\n")
+        string = ""
+        i = 0
+        for function in apt_post_types:
+            if len(string) > 25 or (i > 0 and i % 3 == 0):
+                output.append(f"    {string}")
+                string = ""
+                i = 0
+            string += f"  {function},"
+            i += 1
+        if string:
+            output.append(f"    {string}")
+        
+        output.append(f"**apt_plot_types:** \n")
+        output.append("Found in apt_plot_types\n")
+        string = ""
+        i = 0
+        for function in apt_plot_types:
+            if len(string) > 25 or (i > 0 and i % 3 == 0):
+                output.append(f"    {string}")
+                string = ""
+                i = 0
+            string += f"  {function},"
+            i += 1
+        if string:
+            output.append(f"    {string}")
+
+        output.append(f"**data.keys:** \n")
+        output.append(f"Subplots may have different datasets with different keys\n")
+        string = f""
+        i = 0
+        for key in afig.data.keys:
+            if len(string) > 25:
+                output.append(f"    "+string)
+                string = f""
+                i=0
+            elif i > 0 and i % 5 == 0:
+                output.append(f"    " +string)
+                string = f""
+                i =0
+           
+            string += f"  {key},"
+            i+=1
+
+        output.append(f"    "+string)
+        
+
+        output.append(f"**Fontsize parameter options:** \n")
+        output.append(f"    fontsize:        default for all fontsize")
+        output.append(f"    label_fontsize:  fontsize for x and y labels")
+        output.append(f"    title_fontsize:  fontsize for title of subplot")
+        output.append(f"    tick_fontsize:   fontsize for tick labels")
+        output.append(f"    legend_fontsize: fontsize for legend")
+        output.append(f"    to add other fontsizes, need to adjust the set_fontsize method in both apt_fig, apt_plot, and apt_post")
+
+
+        display(Markdown("\n".join(output)))
+        
 
     def __str__(self):
         kwargs_str = ', '.join(f'{key}={value}' for key, value in self.kwargs.items())
@@ -1005,9 +1092,6 @@ def match_param(parameters, obj):
     
 
 # %%
-
-
-# %%
 ########################################################
 def extract_keyword_from_error(error):
     from re import search
@@ -1029,7 +1113,7 @@ def run_function_safely(func, *args, **kwargs):
         # This is fragile and depends on the error message format
         key_error = extract_keyword_from_error(e)
 
-        # remove this key from the input arguments the recursionally run the function
+        # remove this key from the input arguments then recursionally run the function
         if key_error in kwargs:
             #if debug.enabled and debug.level <= 0:
                 #print(f"Removing key {key_error} from kwargs")
@@ -1050,98 +1134,113 @@ as well as the data object
 This function plots a pcolormesh plot on the axis
 and includes a colorbar nicely placed on the right
 '''
-def colorplot(apt_plot_object,data,**kwargs): 
+def colorplot(apt_plot_object,**kwargs): 
     ap = apt_plot_object
-    import warnings
+    data = ap.data
     ax = ap.ax
     ap.plot_type = 'colorplot'
+    kwargs.setdefault("rasterized", True)
+    
     params = match_param(kwargs, ax.pcolormesh)
     if debug.enabled and debug.level <= 0:
         print(f"{ap.name} is plotting colorplot with parameters {params}")
     
-    warnings.filterwarnings("ignore", category=UserWarning, message="The input coordinates to pcolormesh are interpreted as cell centers.*")
+    
+    from warnings import filterwarnings
+    filterwarnings("ignore", category=UserWarning, message="The input coordinates to pcolormesh are interpreted as cell centers.*")
     # passing params into pcolormesh crashes, so we need to remove problematic ones with run_function_safely
     c = run_function_safely(ax.pcolormesh, data.x1, data.x2, ap.fld_val(data), **params)
     
     #include the colorbar
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    cbar = plt.colorbar(c, cax=cax)
-    params = match_param(kwargs, cbar.ax.tick_params)
-    #cbar.ax.tick_params(**params)
-
-    #sets the colorbar object to the plot object
-    apt_plot_object.cbar = cbar
-
+    if ap.parameters.get("include_colorbar",True):
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        cbar = plt.colorbar(c, cax=cax)
+        #saves the cbar object to the apt_plot object if needed to be used
+        apt_plot_object.cbar = cbar
 
     return c
 
 # %%
 ####################################################################
 
-def lineout_plot(apt_plot_object,data,**kwargs):
+def lineout_plot(apt_plot_object,**kwargs):
     ap = apt_plot_object
     ax = ap.ax
-    labels = kwargs.get('labels', None)
-    #checks if restriced exists
+    fld_vals = ap.fld_val
+    datas = ap.data
+
+    #checks if restricted exists
     if hasattr(ap, 'restrictions'):
         restrictions = ap.restrictions
     else:
-        raise ValueError("Lineout plot must have restrictions")
+        raise ValueError("Lineout plot must have restrictions of the form (axis, value)")
     
     #checks if second_restriction exists
     if getattr(ap, 'second_restriction') is not None:
         second_restriction = ap.second_restriction
         raise ValueError("3D with second_restrictions not implemented yet")
     
-    
-    fld_vals = ap.fld_val
-    datas = ap.data
-
     #assert same length
     if len(fld_vals) != len(restrictions) != len(datas):
-        raise ValueError("fld_vals and restrictions must be the same length")
+        raise ValueError("fld_vals, restrictions, and data must be the same length")
 
     xdata=[]
     ydata=[]
+    
+    default_labels = []
 
+    def convert_to_index(ax_index,value):
+        # takes an x1,x2 (x3) value and converts it into an index on the grid
+        lower = data.conf["lower"][ax_index]
+        N = data.conf["N"][ax_index]
+        downsample = data.conf["downsample"]
+        size = data.conf["size"][ax_index]
+
+        index = (value-lower)*N/(size*downsample)
+        return int(index) # as its an index
+    
     for restriction,fld_val,data in zip(restrictions,fld_vals,datas):
         
         res_ax = restriction[0]# the axis to restrict
         val = restriction[1]# the restricting value
 
-        #look at each case separately
-        if res_ax == "theta":
-            restricted_index = np.argmin(np.abs(data._theta-val))
-            ys = fld_val(data)[restricted_index,:]
-            xs = data._r
-            
-        elif res_ax == "r":
-            restricted_index = np.argmin(np.abs(data._r-val))
-            ys = fld_val(data)[:,restricted_index]
-            xs = data._theta
-        else:
-            raise ValueError("Lineout plot must have restrictions on theta or r, if you did ._theta just do .r")
-        '''
-        axdata = getattr(data,res_ax)
-        restricted_index = np.argmin(np.abs(axdata-val))
-        #main issue is restricted index finds a single value
-        # i need the whole row/column
-        
-        fld_val = fld_val(data) # the fld function of the data
-        line = fld_val[restricted_index] #isolated to restricted index
+        #different cases of restriction
+        if res_ax == "x1":
+            res_index = convert_to_index(0,val)
+            ys =  fld_val(data)[:,res_index]
+            xs = data.x2[:,res_index]
+            ap.parameters.setdefault("xlabel", "$x_2$")
+            default_labels.append(f"$x_1 = {val:.2f}$")
 
-        if res_ax is 'x1':
-            line = fld_val[restricted_index:]
-            rem_ax = 'x2'
-            xs = getattr(data,rem_ax)[restricted_index,:]
-        elif res_ax is 'x2':
-            line = fld_val[:,restricted_index]
-            rem_ax = 'x1'
-            xs = getattr(data,rem_ax)[:,restricted_index]
+        elif res_ax == "x2":
+            res_index = convert_to_index(1,val)
+            ys =  fld_val(data)[res_index,:]
+            xs = data.x1[res_index,:]
+            ap.parameters.setdefault("xlabel", "$x_1$")
+            default_labels.append(f"$x_2 = {val:.2f}$")
+
+        elif res_ax == "theta":
+            # theta is equivalent to x2 but this makes the xlabel r
+            res_index = convert_to_index(1,val)
+            
+            ys =  fld_val(data)[res_index,:]
+            xs = data.x1[res_index,:]
+            ap.parameters.setdefault("xlabel","$r$")
+            default_labels.append(f"$\\theta = {val:.2f}$")
+
+        elif res_ax == "r":
+            # r is equivalent to exp(x1) i.e x1 = log(r)
+            val = np.log(val)
+            res_index = convert_to_index(0,val)
+            ys =  fld_val(data)[:,res_index]
+            xs = data.x2[:,res_index]
+            ap.parameters.setdefault("xlabel","$\\theta$")
+            default_labels.append(f"$r = {val:.2f}$")
+        
         else:
-            raise ValueError("Lineout plot must have restrictions on x1 or x2 (3D not implemented yet), if you did ._theta just do .x2")
-        '''
+            raise ValueError("Lineout plot must have restrictions on x1,x2,'theta','r', (irregardless of coordinate system)")
+        
         xdata.append(xs)
         ydata.append(ys)
 
@@ -1150,6 +1249,11 @@ def lineout_plot(apt_plot_object,data,**kwargs):
     ap.plot_type = 'lineplot' #to allow for lineplot updating
     ap.xdata = xdata
     ap.ydata = ydata
+    
+    labels = kwargs.get('labels', default_labels)
+    for i, label in enumerate(labels): #because somehow labels is None
+        if label is None:
+            labels[i] = default_labels[i]
     # now we plot the line
     # this allows us to call the function again to update the line data
     # without redrawing the whole plot as xdata,ydata is the pertinent data
@@ -1160,17 +1264,19 @@ def lineout_plot(apt_plot_object,data,**kwargs):
         params = match_param(kwargs, ax.plot)
         for i in range(len(xdata)):
             label = labels[i] if labels is not None else None
-            print(label)
-            line, = run_function_safely(ax.plot,xdata[i], ydata[i],label=label, **params)
+            
+            #line, = run_function_safely(ax.plot,xdata[i], ydata[i],label=label, **params)
+            line = ax.plot(xdata[i], ydata[i],label=label)
             plot_object.append(line)
         
         ap.linemade = True
         return plot_object
 
 # %%
-def particle_hist(apt_plot_object,data,**kwargs):
+def particle_hist(apt_plot_object,**kwargs):
     ap = apt_plot_object
     ax = ap.ax
+    data = ap.data
 
     # First ensures that the plot object has the necessary keys
     if not all(hasattr(ap, key) for key in ['x_key', 'y_key', 'species']):
@@ -1184,31 +1290,29 @@ def particle_hist(apt_plot_object,data,**kwargs):
             species = 1
         elif species == "e" or "electron":
             species = 0
+        elif species == "i" or "ion":
+            species = 2
         else:
-            raise ValueError(f"Species {species} is not valid, must be 'e' or 'p', or 0 or 1")
+            raise ValueError(f"Species {species} is not valid, must be 'e', 'p','i', or 0, 1,2")
 
     # Now we can plot the particle plot with the species flag
     x = getattr(data, f"tracked_ptc_{x_key}")[flag_to_species(data.tracked_ptc_flag) == species]
     y = getattr(data, f"tracked_ptc_{y_key}")[flag_to_species(data.tracked_ptc_flag) == species]
 
-    plot = run_function_safely(ax.hist2d, x, y, bins=200,**kwargs)
+    kwargs.setdefault("bins", 200)
+    plot = run_function_safely(ax.hist2d, x, y,**kwargs)
 
     return plot
     #ap.plot_type = 'particle_plot' # need to understand how to update first
 
 # %%
-
-
-# %%
 # Spectra looks at the particle data and plots a histogram of the energy
 # will need to consider log scale as well
-def spectrum_plot(apt_plot_object,data,**kwargs):
+def spectrum_plot(apt_plot_object,**kwargs):
     ap = apt_plot_object
     ax = ap.ax
+    datas = ap.data
     ap.plot_type = 'lineplot' #to allow for lineplot updating
-
-    #ap.xdata = rs
-    #ap.ydata = line
 
     # First ensures that the plot object has the necessary keys
     if not all(hasattr(ap, key) for key in ['species']):
@@ -1217,13 +1321,22 @@ def spectrum_plot(apt_plot_object,data,**kwargs):
     if isinstance(species, str):
         species = [species]
         # this is to enable multiple species to be plotted
-    for specie in species:
+
+    xdata = []
+    ydata = []
+    default_labels = []
+    for specie, data in zip(species,datas):
         if specie == "p"or "positron" or 1:
             specie = 1
+            default_labels.append("Positron")
         elif specie == "e" or "electron" or 0:
             specie = 0
+            default_labels.append("Electron")
+        elif specie == "i" or "ion" or 2:
+            specie = 2
+            default_labels.append("Ion")
         else:
-            raise ValueError(f"Species {specie} is not valid, must be 'e' or 'p', or 0 or 1")
+            raise ValueError(f"Species {species} is not valid, must be 'e','p','i', or 0,1,2")
     # The flag requires species to be 0 or 1 (or the ion option)
     
         # Now we can plot the particle plot with the species flag
@@ -1242,21 +1355,34 @@ def spectrum_plot(apt_plot_object,data,**kwargs):
         counts, bin_edges = run_function_safely(np.histogram,energy, **params)
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
-        #doesn't work with the multiple species yet
-        ap.xdata = bin_centers
-        ap.ydata = counts
+        xdata.append(bin_centers)
+        ydata.append(counts)
+        
 
-        if hasattr(ap, 'linemade'):
-                pass
-        else:
-            
-            params = match_param(kwargs, ax.plot)
-            line, = run_function_safely(ax.step,bin_centers, counts, **params)
-            if logscale:
-                ax.set_xscale('log')
+    ap.plot_type = 'lineplot'
+    ap.xdata = xdata
+    ap.ydata = ydata
 
-            ap.linemade = True # to only run the step function once future times will only update the data
-            return line
+    labels = kwargs.get('labels', default_labels)
+    for i, label in enumerate(labels): #because somehow labels is None
+        if label is None:
+            labels[i] = default_labels[i]
+
+    if hasattr(ap, 'linemade'):
+            pass
+    else:
+        plot_object = []
+        params = match_param(kwargs, ax.plot)
+        params.pop("label",None)
+        for i in range(len(xdata)):
+            label = labels[i] if labels is not None else None
+            line, = run_function_safely(ax.step,xdata[i], ydata[i],label = label, **params)
+            plot_object.append(line)
+        if logscale:
+            ax.set_xscale('log')
+
+        ap.linemade = True # to only run the step function once future times will only update the data
+        return plot_object
 
 
 
@@ -1290,6 +1416,8 @@ def draw_field_lines1(name='draw_field_lines1',**kwargs):
         #clevels = np.linspace(0.0, Bmax, 10)
         
         for plot in self.post_plots:
+            if data != plot.data:
+                print(f"{plot}.data is not the same as afig's data, will plot but flux is from afig's data not plot's data")
             contours = plot.ax.contour(data.x1, data.x2, flux, clevels, colors='green', linewidths=1)
             setattr(plot, name, contours)
             # to access for update later
@@ -1322,65 +1450,13 @@ so it requires the apt_fig object as input
 This function will merely draw the neutron star on every plot
 '''
 def draw_NS(name='draw_NS',**kwargs):
-    def func(self,apt_fig,**kwargs): 
+    def func(self,**kwargs): 
         r = kwargs.get("Radius",1)
         for plot in self.post_plots:
             plot.ax.add_patch(plt.Circle((0,0),r,fill=True, color="black", alpha=0.5))
 
     return apt_post(name, func, **kwargs)
 apt_post_types['draw_NS'] = draw_NS
-
-# %%
-#########################################################################
-#########################################################################
-# Here there be the figure functions
-
-'''
-this function just returns the top right subplot
-this is used for the time function
-'''
-def find_top_right_subplot(fig):
-    max_x1 = -1
-    max_y1 = -1
-    top_right_subplot = None
-    
-    for ax in fig.axes:
-        bbox = ax.get_position()
-        # Check if this subplot is further right and up than the current max
-        if bbox.x1 >= max_x1 and bbox.y1 >= max_y1:
-            max_x1, max_y1 = bbox.x1, bbox.y1
-            top_right_subplot = ax
-            
-    return top_right_subplot
-
-
-# %%
-#########################################################################
-
-'''
-show_time is a figure function
-so it requires as input  the figure to plot on
-as well as the dataset being plotted
-
-This draws the time on the top right of the figure
-'''
-def show_time(fig,dataset,**kwargs):
-    time = round(dataset.time,2)
-    width,height = fig.get_size_inches()
-    add_height = 2 #adjustment for the text
-    fig.set_size_inches(width, height+add_height, forward=True)
-    # Adjust the top margin to make space for the text
-    top_right = find_top_right_subplot(fig)
-    #fig.subplots_adjust(top=0.85) 
-    top_right.text(0.0, 1.1, r"$t = %a units $" % time, fontsize=14, transform=top_right.transAxes)
-    #fig.text(x,y,f"t = {time:.2f}", fontsize=24,color = 'blue')
-    return fig
-
-# %%
-
-
-# %%
-
 
 # %%
 #########################################################
@@ -1392,53 +1468,18 @@ apt_plot_types = {} # a dict of possible
 def EdotB(name="EdotB"):
     fld_val = lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3
     return (fld_val,name)
-
-
-def EdotB22(name='EdotB',**kwargs):
-    vmin = kwargs.get('vmin', -1) #default values
-    vmax = kwargs.get('vmax', 1)
-    return apt_plot(
-                     lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3,
-                     name = name,
-                     plot_function = colorplot,
-                     #optional
-                     title = r"$\vec{E} \cdot \vec{B}$",
-                     vmin = vmin,
-                     vmax = vmax,
-                     **kwargs
-                     )
 apt_plot_types['EdotB'] = EdotB
 
-def Epar(name='Epar',**kwargs):
-    vmin = kwargs.get('vmin', -1)
-    vmax = kwargs.get('vmax', 1)
-    return apt_plot(
-                     lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3,
-                     name = name,
-                     plot_function = colorplot,
-                     title = r"$(\vec{E} \cdot \vec{B})/(\mathbf{B})$",
-                     #optional
-                     vmin =vmin, #default vmin/vmax forthis quantity
-                     vmax = vmax,
-                     **kwargs
-                     )
+def JdotB(name="JdotB"):
+    fld_val = lambda data: data.J1*data.B1 + data.J2*data.B2 + data.J3*data.B3
+    return (fld_val,name)
+apt_plot_types['JdotB'] = JdotB
+
+def Epar(name="Epar"):
+    fld_val = lambda data: (data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3) / data.B_sqr
+    return (fld_val,name)
 apt_plot_types['Epar'] = Epar
 
 
-
-
-
-# %%
-def EdotB_eq(name='EdotB_eq',**kwargs):
-
-    return apt_plot(
-                     lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3,
-                     name = name,
-                     plot_function = lineout_plot,
-                     xlabel = "r",
-                     ylabel = r"$\vec{E} \cdot \vec{B}$",
-                     **kwargs
-                     )
-apt_plot_types['EdotB_eq'] = EdotB_eq
 
 

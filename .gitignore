@@ -7,3 +7,4 @@ movie_plots
 *.mp4
 !README_images/*.png
 notes
+venv

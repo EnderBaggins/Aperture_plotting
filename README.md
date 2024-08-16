@@ -445,7 +445,7 @@ Access the dictionary of these functions with `apt_post_types`
 ### plotting type functions
 These are the functions that actually do the plotting. They are inputs into the `apt_plot` constructor functions and are called by the `apt_plot` object's `make_plot` method.
 
-- `colorplot`: Makes a color plot of the data. Uses the `pcolormesh` function and sets the colorbar. saves the colorbar as an attribute of the `apt_plot` object. apt_plot.cbar. This allows a hardcoded updating for fontsize
+- `colorplot`: Makes a color plot of the data. Uses the `pcolormesh` function and sets the colorbar. saves the colorbar as an attribute of the `apt_plot` object. apt_plot.cbar. This allows a hardcoded updating for fontsize. Optional argument `include_colorbar` with default of True. If False, the colorbar will not be included in the plot.
 
 - `lineout`: Makes a line plot of the data fld values at a specific theta value (default `pi/2`). 
 
