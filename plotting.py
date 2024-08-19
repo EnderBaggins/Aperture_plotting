@@ -88,6 +88,7 @@ class apt_plot:
         self.name = name
         self.ax = None
         self.data=data
+        self.step = kwargs.get('step',0)
         # if hasattr(data,'dataname'):
         #     self.dataname = data.dataname
 
@@ -164,6 +165,26 @@ class apt_plot:
         #self.parameters['aspect'] = 'equal'
         self.parameters['fontsize'] = 24
 
+    #anytime you make_plot or update_plot this should be called to ensure
+    # the data is loaded and the step is set
+    # mainly since you can have multiple plots on the same data with different steps
+    def set_step(self,step=None):
+        if step is None:
+            # will load the data on self.step
+            # this is since data can have different steps
+            if isinstance(self.data,list):
+                for datum in self.data:
+                    datum.load(self.step)
+            else:
+                self.data.load(self.step)
+            return
+        self.step = step
+        if isinstance(self.data,list):
+            for datum in self.data:
+                datum.load(step)
+        else:
+            self.data.load(step)
+
     # overrides the parameters of the class object without overwriting them
     def override_params(self, **kwargs):
         parameters = self.parameters.copy()
@@ -178,6 +199,7 @@ class apt_plot:
         return parameters
 
     def make_plot(self,data, **kwargs):
+        self.set_step(kwargs.get('step',None))
         parameters = self.override_params(**kwargs)
         
         # creates the plot_object desired
@@ -186,6 +208,7 @@ class apt_plot:
         self.set_plot_attr(**parameters)
 
     def update_plot(self, data, **kwargs):
+        self.set_step(kwargs.get('step',None))
         parameters = self.override_params(**kwargs)
         if self.plot_object is None:
             raise ValueError("No plot object to update, make_fig first")
@@ -408,8 +431,8 @@ class apt_fig:
         self.fig = None
         self.plots = {}        # has axis information inside the class objects
         self.parameters = {}
-        self.data = data       #Only one dataset in apt_fig
-        self.step = 0
+        self.data = data       #Default data and step for all plots
+        self.step = 0          #subplots can have different ones though
         self.post_process = {} # post_processing functions. Things that act on all axes or figures
         self.made = False      # marks whether make_fig has been run
         # storing the information about the shape of the figure
@@ -441,6 +464,7 @@ class apt_fig:
         # loading the data at the timestep
         if name == 'step':
             self.data.load(value)
+            #self.data.load(value)
         #This is necessary to avoid infinite recursion
         super().__setattr__(name, value)
     
@@ -448,6 +472,30 @@ class apt_fig:
         super().__delattr__(name)
     ####################################################
     
+
+    def set_step(self, plots, step):
+        if plots == "all":
+            self.step = step
+            self.data.load(step) #the default figure value
+            for plot in self.plots.values():
+                plot.set_step(step)
+            return
+        
+        if not isinstance(plots, list):
+            plots = [plots]
+        if not isinstance(step, list):
+            step = [step] * len(plots)
+        assert len(plots) == len(step), "plots and steps must be the same length to ensure correct linking"
+
+        for plot,step in zip(plots,step):
+            if plot == self.unique_ident:
+                # this is the figure itself
+                self.data.load(step)
+                self.step = step
+            else:
+                self.plots[plot].step = step
+
+
     # checks if this position is taken by another subplot
     def check_position_taken(self,pos):
         for plot in self.plots.values():
@@ -487,15 +535,17 @@ class apt_fig:
 
         if data is None:# allows overriding of fig data for subplot
             data = self.data
-    
+        step = kwargs.pop('step',self.step) #default to figure step
+
         if not isinstance(fld_val,apt_plot):
             #if the plot is not a apt_plot object, make it one
             try:
-                ap = apt_plot(name, fld_val, data ,plot_function, **kwargs)
+                ap = apt_plot(name, fld_val, data ,plot_function,step = step, **kwargs)
             except Exception as e:
                 raise ValueError("Failed to create apt_plot object {e}")
         else:
             ap = fld_val
+            ap.step = step
         
         #if the plot already exists, raise an error
         if name in self.plots:
@@ -649,10 +699,11 @@ class apt_fig:
         #first make all the plots
         for plot in self.plots.values():
             plot.make_plot(self.data, **parameters)
+            #make_plot does call plot.set_step so the data is loaded correctly
             if debug.enabled and debug.level <= 0:
                 print(f"Made plot {plot.name} \n")
 
-        #then post process
+        #then post process # it is important to do this after all the plots are made
         for post in self.post_process.values():
             post.make_post(self, **parameters)
             if debug.enabled and debug.level <= 0:
@@ -684,7 +735,11 @@ class apt_fig:
         parameters = self.override_params(**kwargs)
 
         if step is not None:
-            self.step = step
+            self.set_step("all",step)
+            if hasattr(self,'making_movie') and self.making_movie:
+                pass
+            else:
+                print(f" update_fig does not yet work with different step numbers for different plots, but make_fig should")
             # this will also update data to new step 
             # so plot references to data will also be updated
 
@@ -712,6 +767,8 @@ class apt_fig:
  
     def make_movie(self,save_name="Untitled", start=0, end=None,increment=1,  **kwargs):
         assert all(isinstance(var, (int, type(None))) for var in [start, end, increment]), "start, end, increment must be integers or None"
+        print("make_movie does not work with different step numbers for different plots")
+        self.making_movie = True
         if end is None:
             end = len(self.data.fld_steps)
         #checks if untitled already exists in movies
@@ -746,6 +803,7 @@ class apt_fig:
 
         os.system(f"ffmpeg -y -loglevel error -r 10 -i movie_plots/%05d.png -c:v libx264 -vf fps=25 -pix_fmt yuv420p -threads 0 movies/{save_name}.mp4")
         print(f"Progress: Movie Finished saved to {os.getcwd()}/movies/{save_name}.mp4")
+        del self.making_movie
 
     
     def set_fontsize(self, **kwargs):
@@ -880,7 +938,6 @@ class apt_fig:
 
     def add_spectrum_plot(self,name, species,data=None,logscale= False, **kwargs):
         global spectrum_plot
-        
 
         # first convert to list of species
         if isinstance(species, str):
@@ -952,9 +1009,12 @@ class apt_fig:
             output.append(f"  **{name}**\n")
             if hasattr(plot.data, 'name'):
                 output.append(f"    Data: {plot.data.name}")
+            if hasattr(plot, 'step'):
+                output.append(f"    Step: {plot.step}")
             if isinstance(plot.data,list):
                 for i,data in enumerate(plot.data):
                     output.append(f"    {i+1}: Data: {data.name}")
+                output.append(f"    varying steps not implemented for multidata in a single subplot")
             #output.append(f"  data: {plot.data}")
             output.append(f"    Position: {plot.position}")
             output.append(f"    Parameters:")
@@ -1409,7 +1469,7 @@ Current problems is it required Bp inside the config of the dataset
 def draw_field_lines1(name='draw_field_lines1',**kwargs):
     
     def func(self,apt_fig,**kwargs):
-        data = apt_fig.data
+        data = apt_fig.data # will need to change to be plot.data instead as each plot has its own data reference
         Bmax = kwargs.get('Bp',data.conf["Bp"])
         flux    = np.cumsum(data.B1 * data._rv * data._rv * np.sin(data._thetav) * data._dtheta, axis=0)
         clevels = np.linspace(0.0, np.sqrt(Bmax), 10)**2
@@ -1479,7 +1539,6 @@ def Epar(name="Epar"):
     fld_val = lambda data: (data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3) / data.B_sqr
     return (fld_val,name)
 apt_plot_types['Epar'] = Epar
-
 
 
 
