@@ -4,27 +4,17 @@
 
 particle_plot will not update with update_fig
 
-no way of directly comparing two datasets. This will probably end up being a wrapper function that takes two created figures and adds them together. I could also look into a way of making data an attribute of the apt_plot object, so different onces could be different datasets. This would fail when different datasets have diffferent shapes or different step sizes. things to consider here.
-
-You have do do a lot of from plotting import this or that and its easy to miss something. I could make it be a `from plotting import *` but that is not ideal. I could make a simple `import_plotting.py` file that runs all pertinent imports. then all you need do is run that file in the beginning of your stuff.
-
-I could specify the created constructor functions with tags, so they know what they are for. This would allow to not need apt_plot_types for example, but when creating a new one you need to remember to tag it.
-
 a second make_fig will delete anything you do directly to the afig.fig object. i.e afig.fig.set_size_inches will not pass through a second make_fig. This is because the fig object is deleted and recreated. through these changes, but it would be a lot of work and probably not worth it.
 
 
-add colorbar as a plot option too
-default with colorplot
 
-make lineout work with multiple lines (or have another way of showing multiple lineplots on a single subplot)
-
-I can totally refactor the construcor objects, the constructor just returns the different things it needs, then add_plot calls apt_plot.
 ## Example use case
+This is depracated by now, I will update this soon.
 ```python
 import plotting
 from plotting import colorplot, lineout
 from plotting import apt_fig, aperture_figure_objects
-from plotting import apt_plot, apt_plot_types #when you want to make your own plot functions
+from plotting import apt_plot, fld_val_eqns #when you want to make your own plot functions
 from plotting import apt_post, apt_post_types #when you want to make your own post processing functions
 
 import matplotlib.pyplot as plt
@@ -104,7 +94,7 @@ Do not change these directly.
 ##### Wrappers for add_plot:
 These functions call add_plot and just make a plot of that type. You can either specify the key value to reference a premade function or frovide a fld_func lambda function and name to create a new apt_plot object.
 
-- `add_colorplot(fld_val, name, key=None)`: adds a colorplot to the figure by calling add_plot. fld_val can be a data.key a key for apt_plot_types, or a lambda function on data. (optional data argument to set a new dataset)
+- `add_colorplot(fld_val, name, key=None)`: adds a colorplot to the figure by calling add_plot. fld_val can be a data.key a key for fld_val_eqns, or a lambda function on data. (optional data argument to set a new dataset)
 
 - `add_lineout_plot(name, fld_vals, restrictions,labels key=None)`: adds a lineout to the figure by calling add_plot. restrictions is a tuple of axis and value ("theta", np.pi/2) for example. labels will be the reference to the line for a legend. fld_vals, restrictions, labels and data can all be a list of their respective types to plot multiple lines
 
@@ -116,7 +106,7 @@ These functions call add_plot and just make a plot of that type. You can either 
 Adds a plot to the figure. Saves the `apt_plot` object in the `plots` dictionary.
 
 - **Parameters:**
-  -  `key`: an `apt_plot` object, a string corresponding to an `apt_plot` object in `apt_plot_types`, or a string corresponding to a field value in the `data` object (e.g., `"B3"` refers to `data.B3`).
+  -  `key`: an `apt_plot` object, a string corresponding to an `apt_plot` object in `fld_val_eqns`, or a string corresponding to a field value in the `data` object (e.g., `"B3"` refers to `data.B3`).
 
   - `name` (optional): The name of the plot. Defaults to the key value.
 
@@ -152,7 +142,7 @@ afig.add_post(["draw_field_lines1", "draw_NS"], add_to = ["EdotB", "B3"])
 #### `add_parameters(plots)`:
 Adds parameters to the figure. These parameters overwrite the default parameters of the `apt_plot` objects.
 - **Parameters:**
-  - `plots`: a string corresponding to an `apt_plot` object in `apt_plot_types`, a list of strings corresponding to multiple `apt_plot` objects, or `"all"` to apply to all plots.
+  - `plots`: a string corresponding to an `apt_plot` object in `fld_val_eqns`, a list of strings corresponding to multiple `apt_plot` objects, or `"all"` to apply to all plots.
   - `kwargs`: Whatever parameters you want to pass to overwrite the default parameters of the `apt_plot` objects.
 
 #### `make_fig()`:
@@ -166,6 +156,11 @@ Creates the figure based on the added plots and post-processing steps.
 ```python
 afig.make_fig(fontsize=12)
 ```
+#### `set_step(plots,step)`:
+Sets the step for each plot in the input list of plots. Only works with 1 step at a time. If you want to set multiple steps you will need to call this function multiple times.
+- **Parameters:** 
+  - `plots`: a string corresponding to an `apt_plot` object in `fld_val_eqns`, a list of strings corresponding to multiple `apt_plot` objects, or `"all"` to apply to all plots.
+  - `step`: The step number to plot on these plots.
 
 #### `update_fig(step,set_plot_attr)`:
 Updates the figure based on a new step. Does not quite work if you change a bunch of attributes, in those cases just call make_fig again.
@@ -197,6 +192,9 @@ afig.make_movie("Example_movie")
 #### `print_info()`:
 Prints the information of the figure. This includes the data object, the plots, and the post-processing steps as well as all of their parameters.
 
+#### `print_options()`:
+Prints the options for functions and whatnot on this apt_fig object. This is useful for seeing what you can do with the object. Note that this may not be updated at the same time as updates to the code.
+
 ### Other `apt_fig` Methods
 #### External Use:
 - `del_plot(name)`: Deletes a plot from the figure.
@@ -223,7 +221,7 @@ Prints the information of the figure. This includes the data object, the plots, 
 The `apt_plot` class is responsible for creating a singular subplot in the figure. It contains the plotting function and the parameters for the plot.
 
 ### Creating `apt_plot` Objects
-You don't directly create `apt_plot` objects. Instead, you add them to an `apt_fig` object using the `add_plot` method and a constructor key value or function.
+You don't directly create `apt_plot` objects. Instead, you add them to an `apt_fig` object using the `add_plot` method.
 
 ### `apt_plot` Attributes
 
@@ -239,11 +237,15 @@ Use these to access and change attributes of the plot.
 #### Internal Attributes
 Do not change these directly. Please use the `apt_fig` object functions to change these.
 
-- `func`: A lambda function of the form func(data). This is set by the plot constructor function and defines the specific data to plot
+- `name`: The name of the plot. This is set by the plot constructor function. and should also be the string that references the `apt_plot` object.
+
+- `fld_val`: A lambda function on the data. This is set by the plot constructor function and defines the specific data to plot
+
+- `data`: A reference to the dataset to plot. This is used when you want to plot a different dataset than the one the figure was created with. This is useful for comparing datasets.
 
 - `plot_function`: This is the specific plotting function (e.g., colorplot which calls pcolormesh and sets the colorbar). This is set by the plot constructor function. It takes data as an input.
 
-- `name`: The name of the plot. This is set by the plot constructor function. and should also be the string that references the `apt_plot` object.
+-`step`: The step number that the data is loaded at. changed by self.set_step which is used to reload the data at a new step.
 
 - `position`: The position of the plot in the figure grid. This is set by the `add_plot` or `move_plot` method of the `apt_fig` object.
 
@@ -257,51 +259,46 @@ I believe all of these are internal and should not be used directly. Some of the
 
 - `override_params(kwargs)`: returns the parameters of the figure, overriding (not overwriting) the default parameters of the `apt_plot` objects with kwargs.
 
-- `make_plot(data)`: Makes the plot based on the data object. This runs the `plot_function` function and `set_plot_attr` function.
+- `make_plot()`: Makes the plot based on the saved self.plot_function,self.data, and self.fld_val This runs the `plot_function` function and `set_plot_attr` function.
 
-- `update_plot(data)`: Updates the plot based on a new data object without needing to redraw everything. This is hardcoded for the different `plot_function` functions. Currently only works for colorplot.
+- `update_plot()`: Updates the plot based on any new changes after previous update or make without needing to redraw everything. This is hardcoded for the different `plot_function` functions. Should work with `colorplot`,`lineplot`, or a multi-line `lineplot` plot_object.
 
 - `set_plot_attr()`: Sets the attributes of the plot based on the parameters of the `apt_plot` object and the `apt_fig` object. Currently hardcoded and only works for `['xlim', 'ylim', 'aspect', 'title']` but can be expanded.
 
-- `copy_ax_attr(new_ax)`: Copies the attributes of the current axis to a new axis and overwrites self.ax. Used when resizing the figure. hardcoded to copy `['title', 'xlabel', 'ylabel', 'xlim', 'ylim', 'xscale','yscale']` but can be expanded to other attributes that affect the look of the plot. Try not to set ticks, because rescaling the figure will mess up the ticks and the default is typically used.
+- `copy_ax_attr(new_ax)`: Copies the attributes of the current axis to a new axis and overwrites self.ax. Used when resizing the figure. hardcoded to copy `['title', 'xlabel', 'ylabel', 'xlim', 'ylim', 'xscale','yscale','rasterized']` but can be expanded to other attributes that affect the look of the plot. Try not to set ticks, because rescaling the figure will mess up the ticks and the default is typically used.
 
 - `set_fontsize()`: Sets the fontsize of the plot based on the `self.parameters` and overridden (not overwritten) by the input kwargs (the parameters of the parent apt_fig object). This is hardcoded to set the fontsize of the title, label, legends, and ticks having each default to just fontsize. Parameters that change  the fontsize are as follows: `['fontsize', 'title_fontsize', 'label_fontsize', 'tick_fontsize', 'legend_fontsize', 'ctick_fontsize']`
 
 ### Creating a constructor function for apt_plot
 
-The dictionary `apt_plot_types` contains all the default constructor functions for the `apt_plot` objects. You can add new constructor functions to this dictionary.
+The dictionary `fld_val_eqns` contains all the default constructor functions for the `apt_plot` objects. You can add new constructor functions to this dictionary.
 
 All data.keys are available as plot_types too even though they are not contained in the dictionary.
 
 The constructor function should have the following structure:
 ```python
-def plot_name(name='plot_name',**kwargs):
-    return apt_plot(
-                    "fld_data to plot"
-                   , name = name
-                   , plot_function = "plot_function"
-                   , #optional parameters
-    )
+def plot_name(**kwargs):
+    fld_val = lambda data: data.key1 * data.key2 # or anything you want to plot
+    return fld_val
+fld_val_eqns['plot_name'] = plot_name
 ```
-Currently I think this only works for colorplots and plotting things like `data.B3*data.E2`.
 
 **Example constructor function**
 ```python
-def EdotB(name='EdotB',**kwargs):
-    vmin = kwargs.get('vmin', -1) #default values
-    vmax = kwargs.get('vmax', 1)
-    return apt_plot(
-                     lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3,
-                     name = name,
-                     plot_function = colorplot,
-                    
-                     #optional
-                     title = r"$\vec{E} \cdot \vec{B}$",
-                     vmin = vmin,
-                     vmax = vmax,
-                     **kwargs
-                     )
-apt_plot_types['EdotB'] = EdotB
+def EdotB():
+    fld_val = lambda data: data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3
+    return (fld_val)
+fld_val_eqns['EdotB'] = EdotB
+
+def JdotB():
+    fld_val = lambda data: data.J1*data.B1 + data.J2*data.B2 + data.J3*data.B3
+    return (fld_val)
+fld_val_eqns['JdotB'] = JdotB
+
+def Epar():
+    fld_val = lambda data: (data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3) / data.B_sqr
+    return (fld_val)
+fld_val_eqns['Epar'] = Epar
 ```
 
 ## `apt_post` Class
@@ -421,7 +418,7 @@ Those defined in the datalib.py and datalib_logsph.py files. These are what hand
 ### `apt_plot` constructor functions
 call these with `afig.add_plot("key")` to add one of these to the figure.
 
-Access the dictionary of these functions with `apt_plot_types`
+Access the dictionary of these functions with `fld_val_eqns`
 
 - Any key value in the data object can be used as a plot type. (e.g. "B3" will plot the B3 field from data.B3)
 
