@@ -80,7 +80,6 @@ class apt_plot:
         ###self.func = func
         self.plot_object = None
         self.plot_function = plot_function # e.g colorplot using pcolormesh
-        self.plot_type = None # plot type for use in updating i.e pcolormesh, lineplot, etc
         self.parameters = {} # all possible parameters for the plot
         self.position = None # a (row,col) tuple (starts at 0->N-1)
         self.made = False
@@ -200,34 +199,16 @@ class apt_plot:
         # sets the parameters of the axis
         self.set_plot_attr(**parameters)
 
-    def update_plot(self, data, **kwargs):
+    def update_plot(self, **kwargs):
+        #is basically make_plot but doesn't set_plot_attr
+        # so probably rather superfluous but its here in case update needs to be different
         self.set_step(kwargs.get('step',None))
         parameters = self.override_params(**kwargs)
 
         if self.plot_object is None:
             raise ValueError("No plot object to update, make_fig first")
-        
-        if self.plot_type == "colorplot":
-            self.plot_object.set_array(self.func(data).flatten())
-            
-        elif self.plot_type == "lineplot":
-            # any lineplot function must specify xdata and ydata as attributes
-            # of the apt_plot object and only run the plotting when linemade is false
-            
-            self.plot_function(self, **parameters)
-            if isinstance(self.plot_object,list):
-                #then there is a list of different lines stores to update
-                #where xdata and ydata are also lists
-                for i, line in enumerate(self.plot_object):
-                    line.set_data(self.xdata[i], self.ydata[i])
-            else:
-                self.plot_object.set_data(self.xdata, self.ydata)
-
-        else:
-            raise ValueError("Update not implemented for this plot function")
-
-
-        #self.set_plot_attr(**parameters)
+        self.plot_object = self.plot_function(self, **parameters)
+        return
         
     def set_plot_attr(self, **kwargs):
         parameters = self.parameters.copy()
@@ -380,7 +361,7 @@ class apt_post:
         parameters = self.override_params(**kwargs)
         # need to pass self into these functions
         # to allow the post_func to access self parameters
-        self.post_func(self,apt_fig_obj, **parameters)
+        self.post_func(self,apt_fig = apt_fig_obj, **parameters)
 
     def update_post(self, apt_fig_obj, **kwargs):
         parameters = self.override_params(**kwargs)
@@ -525,7 +506,7 @@ class apt_fig:
         if debug.enabled and debug.level <= 1:
             print(f"  Reloaded figure to {num_rows}x{num_columns}, with {len(list(self.plots))+1} subplots")
     
-    def _add_plot(self, name, fld_val, data=None, pos=None, plot_function = globals()["colorplot"],  **kwargs):
+    def _add_plot(self, name, fld_val, data=None, pos=None, plot_function = None,  **kwargs):
         # data is only used for creating an apt_plot object
         if data is None:# allows overriding of fig data for subplot
             data = self.data
@@ -741,7 +722,7 @@ class apt_fig:
 
         # updates all the subplots
         for plot in self.plots.values():
-            plot.update_plot(self.data, **parameters)
+            plot.update_plot( **parameters)
             if set_plot_attr:
                 plot.set_plot_attr(**parameters)
             if debug.enabled and debug.level <= 1:
@@ -788,7 +769,7 @@ class apt_fig:
         # saves each step as a temp png
         for step in range(start, end, increment):
             total_steps = (end-start)//increment
-            save_step = step // increment # this is to make sure the steps are always incrementing by 1
+            save_step = step // increment - start # this is to make sure the steps are always incrementing by 1
             #prints 25% progresses
             if save_step % (total_steps //4) == 0:
                 progress = (save_step / total_steps) * 100
@@ -1194,7 +1175,7 @@ def run_function_safely(func, *args, **kwargs):
 #########################################################
 # Here there be the main functions for plotting
 '''
-The Colorplot is a plot_type function
+The Colorplot is a plotting function
 so it needs as input an object of the apt_plot class
 as well as the data object
 This function plots a pcolormesh plot on the axis
@@ -1204,7 +1185,6 @@ def colorplot(apt_plot_object,**kwargs):
     ap = apt_plot_object
     data = ap.data
     ax = ap.ax
-    ap.plot_type = 'colorplot'
     kwargs.setdefault("rasterized", True)
     
     params = match_param(kwargs, ax.pcolormesh)
@@ -1215,17 +1195,24 @@ def colorplot(apt_plot_object,**kwargs):
     from warnings import filterwarnings
     filterwarnings("ignore", category=UserWarning, message="The input coordinates to pcolormesh are interpreted as cell centers.*")
     # passing params into pcolormesh crashes, so we need to remove problematic ones with run_function_safely
-    c = run_function_safely(ax.pcolormesh, data.x1, data.x2, ap.fld_val(data), **params)
     
-    #include the colorbar
-    if ap.parameters.get("include_colorbar",True):
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        cbar = plt.colorbar(c, cax=cax)
-        #saves the cbar object to the apt_plot object if needed to be used
-        apt_plot_object.cbar = cbar
+    if hasattr(ap,"plotmade"): # merely updates the data as opposed to redrawing
+        if ap.plotmade:
+            ap.plot_object.set_array(ap.fld_val(data).flatten())
+            return ap.plot_object
+    else:
+        c = run_function_safely(ax.pcolormesh, data.x1, data.x2, ap.fld_val(data), **params)
+        
+        #include the colorbar
+        if ap.parameters.get("include_colorbar",True):
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right", size="5%", pad=0.05)
+            cbar = plt.colorbar(c, cax=cax)
+            #saves the cbar object to the apt_plot object if needed to be used
+            apt_plot_object.cbar = cbar
 
-    return c
+        ap.plotmade = True
+        return c
 
 # %%
 ####################################################################
@@ -1323,8 +1310,10 @@ def lineout_plot(apt_plot_object,**kwargs):
     # now we plot the line
     # this allows us to call the function again to update the line data
     # without redrawing the whole plot as xdata,ydata is the pertinent data
-    if hasattr(ap, 'linemade'):
-        pass
+    if hasattr(ap, 'linemade'): #updates it
+        for i, line in enumerate(ap.plot_object):
+            line.set_data(xdata[i], ydata[i])
+        return ap.plot_object
     else:
         plot_object = []
         #params = match_param(kwargs, ax.plot)
@@ -1367,10 +1356,20 @@ def particle_hist(apt_plot_object,**kwargs):
     y = getattr(data, f"tracked_ptc_{y_key}")[flag_to_species(data.tracked_ptc_flag) == species]
 
     kwargs.setdefault("bins", 200)
-    plot = run_function_safely(ax.hist2d, x, y,**kwargs)
+    #plot = run_function_safely(ax.hist2d, x, y,**kwargs)
+    H,xedges,yedges = run_function_safely(np.histogram2d, x, y,**kwargs)
 
-    return plot
-    #ap.plot_type = 'particle_plot' # need to understand how to update first
+    if hasattr(ap,"plotmade"):
+        if ap.plotmade:
+            ap.plot_object.set_array(H.T.ravel())
+        
+    else:
+        plot = run_function_safely(ax.pcolormesh, xedges, yedges, H.T, **kwargs)
+        ap.plotmade = True
+        return plot
+    #plot = run_function_safely(ax.pcolormesh, xedges, yedges, H.T, **kwargs)
+
+    return ap.plot_object
 
 # %%
 # Spectra looks at the particle data and plots a histogram of the energy
@@ -1426,7 +1425,6 @@ def spectrum_plot(apt_plot_object,**kwargs):
         ydata.append(counts)
         
 
-    ap.plot_type = 'lineplot'
     ap.xdata = xdata
     ap.ydata = ydata
 
@@ -1436,7 +1434,9 @@ def spectrum_plot(apt_plot_object,**kwargs):
             labels[i] = default_labels[i]
 
     if hasattr(ap, 'linemade'):
-            pass
+        for i, line in enumerate(ap.plot_object):
+            line.set_data(xdata[i], ydata[i])
+        return ap.plot_object
     else:
         plot_object = []
         params = match_param(kwargs, ax.plot)
@@ -1546,7 +1546,4 @@ def Epar():
     fld_val = lambda data: (data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3) / data.B_sqr
     return (fld_val)
 fld_val_eqns['Epar'] = Epar
-
-
-
 

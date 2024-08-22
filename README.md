@@ -2,7 +2,6 @@
 
 ## Current Issues or Future implementations
 
-particle_plot will not update with update_fig
 
 a second make_fig will delete anything you do directly to the afig.fig object. i.e afig.fig.set_size_inches will not pass through a second make_fig. This is because the fig object is deleted and recreated. through these changes, but it would be a lot of work and probably not worth it.
 
@@ -22,27 +21,27 @@ data = plotting.DataSph('[path to data folder]/data/')
 ```
 ```python
 plt.ioff()
-afig = apt_fig(data,"afig")
+bfig = apt_fig(data_rthin_high, "bfig")
 
-afig.add_plot("EdotB")
-afig.add_plot("B3",title = r"$B_\phi$")
+bfig.set_step("all",70)
 
-afig.add_plot("B3_eq", plot_function=lineout,datakey="B3", pos= (1,1))
-afig.add_parameters("B3_eq", ylabel = r"$B_\phi$", xlabel = "r", title = "Equatorial plane")
+bfig.add_colorplot("Rho_e", "Rho_e",pos = (0,0),xlim = [0,20],ylim=[-5,5])
+bfig.add_parameters("Rho_e",title = r"$\rho_e$",xlabel = "r"
+                    ,vmin = -1, vmax = 1
+                    ,ylim = (-5,5),xlim = (0,20)
+)
 
-afig.add_plot("EdotB_eq", plot_function=lineout, pos= (1,0),title = "Equatorial plane")
-afig.add_post(["draw_field_lines1", "draw_NS"], add_to = ["EdotB", "B3"])
+bfig.add_lineout_plot("Rho_e_eq", lambda data: data.Rho_e,pos = (1,0) 
+                      , restrictions = ("theta",np.pi/4),labels="Rho_e_eq"
+                      ,data = data_rthin_high)
 
-afig.add_parameters("all", xlim = [0,10], ylim = [-5,5]
-                    , title_fontsize = 24, tick_fontsize=12
-                    , vmin = -0.2, vmax = 0.2)
-afig.add_parameters("B3", vmin = -1, vmax = 1)
-
-afig.step = 10
-
-fig = afig.make_fig(fontsize=12,title_fontsize = 24,label_fontsize=24)
-fig.set_size_inches(11,10)
-fig.tight_layout()
+bfig.add_parameters("Rho_e_eq",title = r"equatorial plane"
+                    ,xlabel = "r", ylabel = r"$\rho_e$"
+                    , aspect = "auto"
+)
+bfig.add_post("draw_field_lines1",add_to = "Rho_e")
+bfig.set_size(10,10)
+fig = bfig.make_fig()
 display(fig)
 ```
 ![Example output](README_images/mdexample.png)
@@ -63,7 +62,7 @@ The `apt_fig` class is the central class responsible for creating figures. It ma
 
 ### Creating `apt_fig` Objects
 Call the `apt_fig` class to create a new figure object. 
-- `data`: The data object that contains the information to be plotted.
+- `data`: The data object that contains the information to be plotted. Subplots of the `apt_plot` class type will have this as default but can also have different data
 - `unique_ident` (optional): A unique identifier for the figure. used to delete the previous figure when redefining the same class object. if not provided it  overwrite the previous default `apt_fig` object
 ```python
 afig = apt_fig(data, "afig",**kwargs)
@@ -76,7 +75,7 @@ Use these to directly change aspects of the figure without resorting to function
 - `plots`: A dictionary of `apt_plot` objects that are part of the figure. Use `afig.plots["key"]` to access the `apt_plot` object. Do not add or remove plots directly, use the `add_plot`, `del_plot` methods.
 - `post_process`: A dictionary of `apt_post` objects for post-processing steps. Do not add or remove directly, use the `add_post`, `del_post` methods.
 - `fig`: The matplotlib figure object.
-- `step`: The step number that the data is loaded as. changing this auto reloads the data.
+- `step`: The step number that the data is loaded as. change this with `afig.set_step()`.
 - `parameters`: A dictionary of parameters that define the figure parameters and override (not overwrite) the default parameters of the `apt_plot` objects.
 
 #### Internal Attributes
@@ -90,38 +89,47 @@ Do not change these directly.
 
 ### `apt_fig` Methods
 
-#### `add_plot(plot, pos=None)`:
-##### Wrappers for add_plot:
-These functions call add_plot and just make a plot of that type. You can either specify the key value to reference a premade function or frovide a fld_func lambda function and name to create a new apt_plot object.
+#### add_plot methods:
+These functions call _add_plot and just make a plot of that type. You can either specify the key value to reference a premade function or frovide a fld_func lambda function and name to create a new apt_plot object.
 
-- `add_colorplot(fld_val, name, key=None)`: adds a colorplot to the figure by calling add_plot. fld_val can be a data.key a key for fld_val_eqns, or a lambda function on data. (optional data argument to set a new dataset)
+- `add_colorplot(name, fld_val, data=None)`: adds a colorplot to the figure by calling add_plot. fld_val can be a data.key a key for fld_val_eqns, or a lambda function on data. data will default to the data object of the parent figure.
 
-- `add_lineout_plot(name, fld_vals, restrictions,labels key=None)`: adds a lineout to the figure by calling add_plot. restrictions is a tuple of axis and value ("theta", np.pi/2) for example. labels will be the reference to the line for a legend. fld_vals, restrictions, labels and data can all be a list of their respective types to plot multiple lines
+- `add_lineout_plot(name, fld_vals, restrictions,labels=None, second_restriction=None,data=None)`: adds a lineout to the figure by calling add_plot. restrictions is a tuple of axis and value ("theta", np.pi/2) for example. labels will be the reference to the line for a legend. Data can override the default. fld_vals, restrictions, labels and data can all be a list of their respective types to plot multiple lines
 
-- `add_particle_hist(species,x_key,y_key)`: adds a particle histogram to the figure by calling add_plot. using the function particle_plot
+- `add_particle_hist(name,species,x_key,y_key)`: adds a particle histogram to the figure by calling add_plot. using the function particle_hist
 
-- `add_spectrum(species,logscale=False)`: adds a particle spectrum to the figure by calling add_plot. using the function particle_spectrum
+- `add_spectrum_plot(name,species,data=None,logscale=False)`: adds a particle spectrum to the figure by calling add_plot. using the function particle_spectrum
 
-##### continue with add_plot:
-Adds a plot to the figure. Saves the `apt_plot` object in the `plots` dictionary.
+##### continue with _add_plot:
+Adds a plot to the figure. Saves the `apt_plot` object in the `plots` dictionary. Try to use the wrapper methods. but if you create your own `apt_plot` object you can add it directly with this method.
 
 - **Parameters:**
-  -  `key`: an `apt_plot` object, a string corresponding to an `apt_plot` object in `fld_val_eqns`, or a string corresponding to a field value in the `data` object (e.g., `"B3"` refers to `data.B3`).
+  - `name`: The name of the plot.
 
-  - `name` (optional): The name of the plot. Defaults to the key value.
+  - `fld_val`: A lambda function on the data. This is used to specify the specific data to plot. This can be a key value in the data object, a key value in the `fld_val_eqns` dictionary, or a lambda function on the data.
 
   - `data` a reference to the dataset to plot. This is used when you want to plot a different dataset than the one the figure was created with. This is useful for comparing datasets. 
 
   - `pos` (optional): Specifies the grid position of the plot in the figure as a tuple (e.g., `(0, 1)` for first row, second column). The default is `None`, which adds the plot to a new column. If you want to span across multiple columns or rows use colspan or rowspan
 
-  - `plot_function` (optional: Default "colorplot"): The function to use to plot the data. This is used when wanting to plot a function from the data.keys without having to make an entirely new function for each one.
+  - `plot_function`: The function to use to plot the data. This is used when wanting to plot a function from the data.keys without having to make an entirely new function for each one.
 
   - `kwargs`: Additional arguments to override the parameters of the `apt_plot` object.
 
 - **Returns:** None.
 - **Example Use**
 ```python
-afig.add_plot("B3", pos=(0, 1))
+afig.add_colorplot("Rho_e", "Rho_e",pos = (0,0),xlim = [0,20],ylim=[-5,5])
+
+afig.add_lineout_plot("Rho_e_eq", lambda data: data.Rho_e,pos = (1,0) 
+                      , restrictions = ("theta",np.pi/4),labels="Rho_e_eq"
+                      ,data = data_rthin_high)
+
+
+afig.add_particle_hist("particle_hist", "e", "x1", "p1")
+
+
+afig.add_spectrum_plot("spectrum", "e", logscale=True)
 ```
 
 #### `add_post(apt_post_obj)`:
@@ -162,12 +170,18 @@ Sets the step for each plot in the input list of plots. Only works with 1 step a
   - `plots`: a string corresponding to an `apt_plot` object in `fld_val_eqns`, a list of strings corresponding to multiple `apt_plot` objects, or `"all"` to apply to all plots.
   - `step`: The step number to plot on these plots.
 
-#### `update_fig(step,set_plot_attr)`:
+- **Example Use**
+```python
+afig.set_step("all", 60)
+# or
+afig.set_step(["EdotB", "B3"], 60)
+```
+
+#### `update_fig(step)`:
 Updates the figure based on a new step. Does not quite work if you change a bunch of attributes, in those cases just call make_fig again.
 
 - **Parameters:** 
-  - `step` (optional): The step number to plot.
-  - `set_plot_attr` (optional): True/False to update the plot attributes like vmin, vmax, etc. Default is False so it will not have to redraw these attributes
+  - `step`: The step number to plot.
 - **Returns:** The updated matplotlib figure.
 
 - **Example Use**
@@ -251,7 +265,6 @@ Do not change these directly. Please use the `apt_fig` object functions to chang
 
 - `made`: A boolean that is true if the plot has been made. This is set by the `make_plot` method.
 
-- `plot_type`: The type of plot (e.g. colorplot, lineplot). This is set by the plot constructor function. This is used to determine how to update the plot. 2D colorgrids use set_array, lineplots use set_data, etc.
 
 ### `apt_plot` Methods
 
@@ -348,7 +361,7 @@ def post_name(name='post_name',**kwargs):
     
     def func(self,apt_fig,**kwargs):
         #compute whatever you need to compute to throw in each plot 
-        for ploy in self.post_plots:
+        for plot in self.post_plots:
             #do something to the plot
         return None
     
@@ -371,13 +384,15 @@ apt_post_types['post_name'] = post_name
 def draw_field_lines1(name='draw_field_lines1',**kwargs):
     
     def func(self,apt_fig,**kwargs):
-        data = apt_fig.data
+        data = apt_fig.data # will need to change to be plot.data instead as each plot has its own data reference
         Bmax = kwargs.get('Bp',data.conf["Bp"])
         flux    = np.cumsum(data.B1 * data._rv * data._rv * np.sin(data._thetav) * data._dtheta, axis=0)
         clevels = np.linspace(0.0, np.sqrt(Bmax), 10)**2
         #clevels = np.linspace(0.0, Bmax, 10)
         
         for plot in self.post_plots:
+            if data != plot.data:
+                print(f"{plot}.data is not the same as afig's data, will plot but flux is from afig's data not plot's data")
             contours = plot.ax.contour(data.x1, data.x2, flux, clevels, colors='green', linewidths=1)
             setattr(plot, name, contours)
             # to access for update later
