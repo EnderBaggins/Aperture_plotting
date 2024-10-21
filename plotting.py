@@ -1140,25 +1140,35 @@ def match_param(parameters, obj):
 
 # %%
 ########################################################
-import inspect
-def filter_dict(kwarg_dict, f):
-    signature = inspect.signature(f) 
-    
-    filter_keys = [param.name for param in signature.parameters.values() if param.kind == param.POSITIONAL_OR_KEYWORD]
-    filtered_kwargs = {filter_key:kwarg_dict[filter_key] for filter_key in filter_keys if filter_key in kwarg_dict.keys()}
-    
-    #filtered kwargs is then the kwargs used to call run_function_safely 
-    #if those keywords appear in the call signature of f
-    return filtered_kwargs
-        
-def run_function_safely(func, *args, **kwargs):
-    try: 
-        return func(*args, **kwargs)
-    except (AttributeError, TypeError):
-        kwarg_dict = locals()['kwargs']
-        new_kwargs = filter_dict(kwarg_dict,func)
+def extract_keyword_from_error(error):
+    from re import search
+    # Use a regular expression to extract the keyword argument name from the error message
+    match = search(r"unexpected keyword argument '(\w+)'", str(error))
+    if match:
+        # If a match is found, the first group contains the keyword argument name
+        keyword_error = match.group(1)
+        return keyword_error
+    else:
+        # If no match is found, return None or handle as appropriate
+        return None
 
-        return func(*args, **new_kwargs)
+def run_function_safely(func, *args, **kwargs):
+    try:
+        return func(*args, **kwargs)
+    except (AttributeError,TypeError) as e:
+        # Attempt to extract the problematic attribute name from the error message
+        # This is fragile and depends on the error message format
+        key_error = extract_keyword_from_error(e)
+
+        # remove this key from the input arguments then recursionally run the function
+        if key_error in kwargs:
+            #if debug.enabled and debug.level <= 0:
+                #print(f"Removing key {key_error} from kwargs")
+            del kwargs[key_error]
+            return run_function_safely(func, *args, **kwargs)
+        else:
+            raise ValueError(f"could not remove key {key_error}: {e}")
+
 
 
 # %%
