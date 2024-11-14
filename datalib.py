@@ -161,8 +161,8 @@ class Data:
       result = np.zeros((len(self.ptc_steps), len(ptc_id)))
       for n in self.ptc_steps:
         self.load_ptc(n)
-        for i in ptc_id:
-          result[n, i] = self.__getattr__(key)[self.tracked_ptc_id == ptc_id[i]]
+        for i, id in enumerate(ptc_id):
+          result[n, i] = self.__getattr__(key)[self.tracked_ptc_id == id]
     else:
       result = np.zeros(len(self.ptc_steps))
       for n in self.ptc_steps:
