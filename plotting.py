@@ -318,6 +318,7 @@ class apt_plot:
             if (name[4:] in attrs and name.startswith('get_')):
                 try:
                     properties[name] = method()
+                    # print(f"made property {name}")
                 except Exception as e:
                     print(f"Could not execute {name}: {e}")
         #setting the properties
@@ -978,11 +979,11 @@ class apt_fig:
     def add_colorplot(self, name, fld_val= None,data= None, **kwargs):
         """
         Adds a 2D colorplot to the figure of the given field value of the data
-
         Arguments:
         name (str): the name of the plot
         fld_val: the field value to plot either a key in data or a lambda function of data
         data (Data object, optional): the data object that the plot will be made from (defaulted to figure data)
+        x_grid,y_grid (optional: default data.x1,data.x2): the extent of the plot
         **kwargs: Additional arguments to override the default parameters
         """
         global colorplot
@@ -1417,7 +1418,16 @@ def colorplot(apt_plot_object,**kwargs):
             ap.plot_object.set_array(ap.fld_val(data).flatten())
             return ap.plot_object
     else:
-        c = run_function_safely(ax.pcolormesh, data.x1, data.x2, ap.fld_val(data), **params)
+        
+        #implementing a variable x_extent and y_extent
+        x_grid =params.get("x_grid",data.x1)# allows for a n input of the linspace as opposed to just data.xi
+        y_grid =params.get("y_grid",data.x2)
+        if not isinstance(x_grid, np.ndarray):
+            raise ValueError("x_grid must be a numpy array, try making a linspace from xlow to xhigh and meshgrid with yextent")
+        if not isinstance(y_grid, np.ndarray):
+            raise ValueError("y_grid must be a numpy array, try making a linspace from ylow to yhigh and meshgrid with xextent")
+            
+        c = run_function_safely(ax.pcolormesh, x_grid, y_grid, ap.fld_val(data), **params)
         
         #include the colorbar
         if ap.parameters.get("include_colorbar",True):
@@ -1723,6 +1733,10 @@ def draw_field_lines1(name='draw_field_lines1',**kwargs):
 apt_post_types['draw_field_lines1'] = draw_field_lines1
         
     
+
+# %%
+data_rwide.time
+
 # %%
 def draw_time(name='draw_time',**kwargs):
     
@@ -1793,3 +1807,4 @@ def Epar():
     fld_val = lambda data: (data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3) / data.B_sqr
     return (fld_val)
 fld_val_eqns['Epar'] = Epar
+
