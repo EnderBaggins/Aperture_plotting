@@ -1735,9 +1735,6 @@ apt_post_types['draw_field_lines1'] = draw_field_lines1
     
 
 # %%
-data_rwide.time
-
-# %%
 def draw_time(name='draw_time',**kwargs):
     
     def func(self,apt_fig,**kwargs):
