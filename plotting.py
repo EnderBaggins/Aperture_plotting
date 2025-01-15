@@ -33,15 +33,23 @@ from matplotlib.colors import LinearSegmentedColormap
 matplotlib.rc("font", family="serif")
 matplotlib.rc("text", usetex=True)
 
-cdata = {
-    "red": [(0.0, 0.0, 0.0), (0.5, 0.0, 0.0), (0.55, 1.0, 1.0), (1.0, 1.0, 1.0),],
-    "green": [(0.0, 1.0, 1.0), (0.45, 0.0, 0.0), (0.55, 0.0, 0.0), (1.0, 1.0, 1.0),],
-    "blue": [(0.0, 1.0, 1.0), (0.45, 1.0, 1.0), (0.5, 0.0, 0.0), (1.0, 0.0, 0.0),],
-}
+# cdata = { #Old colormap
+#     "red": [(0.0, 0.0, 0.0), (0.5, 0.0, 0.0), (0.55, 1.0, 1.0), (1.0, 1.0, 1.0),],
+#     "green": [(0.0, 1.0, 1.0), (0.45, 0.0, 0.0), (0.55, 0.0, 0.0), (1.0, 1.0, 1.0),],
+#     "blue": [(0.0, 1.0, 1.0), (0.45, 1.0, 1.0), (0.5, 0.0, 0.0), (1.0, 0.0, 0.0),],
+# }
 
-hot_cold_cmap = LinearSegmentedColormap("hot_and_cold", cdata, N=1024, gamma=1.0)
-if "hot_and_cold" not in matplotlib.colormaps:
-    matplotlib.colormaps.register(hot_cold_cmap)
+# hot_cold_cmap = LinearSegmentedColormap("hot_and_cold", cdata, N=1024, gamma=1.0)
+# if "hot_and_cold" not in matplotlib.colormaps:
+#     matplotlib.colormaps.register(hot_cold_cmap)
+
+import pickle
+with open("hot_cold_cmap.pkl", "rb") as f:
+    cdata = pickle.load(f)
+try:#keeps it from yelling at me when i run this twice
+    matplotlib.cm.get_cmap("hot_and_cold")
+except:
+    matplotlib.colormaps.register(cdata,name="hot_and_cold")
 
 
 # %%
