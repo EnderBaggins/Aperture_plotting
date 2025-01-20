@@ -278,7 +278,7 @@ class apt_plot:
         parameters.update(kwargs)
         # This requires that fld_val has the following attributes:
         # xlim, ylim, aspect, title
-        attrs = ['xlim', 'ylim', 'aspect', 'title',"xlabel",'ylabel','rasterized']
+        attrs = ['xlim', 'ylim', 'aspect', 'title',"xlabel",'ylabel','rasterized','xscale','yscale']
         for param in parameters:
             if param in attrs:
                 try:
@@ -387,10 +387,10 @@ class apt_plot:
 
 
     
-    def __str__(self):
-        # A overinformative string representation
-        kwargs_str = ', '.join(f'{key}={value}' for key, value in self.kwargs.items())
-        return f"fld_quantity with function {self.func.__name__} and kwargs: {kwargs_str}"
+    # def __str__(self):
+    #     # A overinformative string representation
+    #     kwargs_str = ', '.join(f'{key}={value}' for key, value in self.kwargs.items())
+    #     return f"fld_quantity with function {self.func.__name__} and kwargs: {kwargs_str}"
     
 
 # %%
@@ -734,6 +734,8 @@ class apt_fig:
         apt_post_obj (apt_post object or list of apt_post objects): the post processing function to add
         add_to (str or list of str, default="all"): the plot or plots to add the post processing function to
         **kwargs: Additional arguments to override the default parameters
+
+        to add a second post of the same function type (i.e two seperate draw_time) merely add a name="new_name" to the kwargs
         """
 
         if add_to == "all":
@@ -1442,6 +1444,9 @@ def colorplot(apt_plot_object,**kwargs):
             divider = make_axes_locatable(ax)
             cax = divider.append_axes("right", size="5%", pad=0.05)
             cbar = plt.colorbar(c, cax=cax)
+            from matplotlib.ticker import ScalarFormatter
+            cbar.ax.yaxis.set_major_formatter(ScalarFormatter(useMathText=True))
+            
             #saves the cbar object to the apt_plot object if needed to be used
             apt_plot_object.cbar = cbar
 
@@ -1556,7 +1561,7 @@ def lineout_plot(apt_plot_object,**kwargs):
             
             #line, = run_function_safely(ax.plot,xdata[i], ydata[i],label=label, **params)
             line, = ax.plot(xdata[i], ydata[i],label=label)
-            print("line,",i, type(line))
+            # print("line,",i, type(line))
             plot_object.append(line)
         
         ap.linemade = True
@@ -1739,19 +1744,96 @@ def draw_field_lines1(name='draw_field_lines1',**kwargs):
     
     return apt_post(name, func, update_func, **kwargs)
 apt_post_types['draw_field_lines1'] = draw_field_lines1
-        
+def convert_to_index(ax_index,value,data):
+        # takes an x1,x2 (x3) value and converts it into an index on the grid
+        lower = data.conf["lower"][ax_index]
+        N = data.conf["N"][ax_index]
+        downsample = data.conf["downsample"]
+        size = data.conf["size"][ax_index]
+
+        index = (value-lower)*N/(size*downsample)
+        return int(index) # as its an index
     
+def draw_field_line(name='draw_field_line',**kwargs):
+    '''
+    draw_field_line is a generator for post processing class object
+
+    its func requires apt_fig as input
+    This stores the contour lines in each plot object
+
+    the update is optional and also requires apt_fig
+    this deletes the old contour lines and recalls func
+
+    '''
+    def func(self,apt_fig,**kwargs):
+        data = apt_fig.data # will need to change to be plot.data instead as each plot has its own data reference
+        # Bmax = kwargs.get('Bp',data.conf["Bp"])
+        th_foot = kwargs.get('th_foot',np.pi/4)
+        r_max = kwargs.get('r_max',None)
+        if not isinstance(th_foot, list):
+            th_foot = [th_foot]
+        #Next overrides th_foot if r_max is given
+        if r_max is not None and not isinstance(r_max, list):
+            r_max = [r_max]
+        if r_max is not None:
+            th_foot = []
+            for r in r_max:
+                th_foot.append(np.arcsin(np.sqrt(1/r)))
+            # th_foot = np.arcsin(np.sqrt(1/r_max))
+        
+        
+
+        flux    = np.cumsum(data.B1 * data._rv * data._rv * np.sin(data._thetav) * data._dtheta, axis=0)
+        #flux = data.flux
+        # Find the index corresponding to the footpoint
+        r = np.log(1) # we always start on the surface
+        r_foot_index = convert_to_index(0,r,data)
+        footpoint_fluxes = []
+        for th in th_foot:
+            theta_foot_index = convert_to_index(1,th,data)
+        #Then we compute the flux at that point
+            flux_foot = flux[theta_foot_index,r_foot_index] # yes these seem flipped but its the way it is
+            footpoint_fluxes.append(flux_foot)
+
+        
+        for plot in self.post_plots:
+            if data != plot.data:
+                print(f"{plot}.data is not the same as afig's data, will plot but flux is from afig's data not plot's data")
+            contours = plot.ax.contour(data.x1, data.x2, flux, footpoint_fluxes, colors='green', linewidths=1)
+            setattr(plot, name, contours)
+            # to access for update later
+        return None
+    
+    def update_func(self,apt_fig,**kwargs):
+        
+        for plot in self.post_plots:
+            if hasattr(plot, name):
+                for c in getattr(plot, name).collections:
+                    c.remove()
+        func(self,apt_fig,**kwargs)
+            
+        if debug.enabled and debug.level <= 1:
+            print(f"Updated {name} at timestep {apt_fig.step}")
+        return None
+    
+    return apt_post(name, func, update_func, **kwargs)
+apt_post_types['draw_field_line'] = draw_field_line
+        
 
 # %%
-def draw_time(name='draw_time',**kwargs):
+def draw_time_fig(name='draw_time_fig',**kwargs):
     
     def func(self,apt_fig,**kwargs):
         # time_units is a string of the units of time
         time_units = kwargs.get('time_units', '')
         text_fontsize = kwargs.get('text_fontsize', None)
-        text_object = apt_fig.fig.text(0.75, 0.75, f"t = {apt_fig.data.time:.2f} {time_units}"
+        color = kwargs.get('color', 'black')
+        text_x = kwargs.get('text_x', 0.75)
+        text_y = kwargs.get('text_y', 0.75)
+        text_object = apt_fig.fig.text(text_x, text_y, f"t = {apt_fig.data.time:.2f} {time_units}"
                          ,transform=apt_fig.fig.transFigure
-                         ,fontsize=text_fontsize)
+                         ,fontsize=text_fontsize
+                         ,color=color)
         
         apt_fig.time_text = text_object
         return None
@@ -1763,8 +1845,45 @@ def draw_time(name='draw_time',**kwargs):
         return None
     
     return apt_post(name, func, update_func, **kwargs)
-apt_post_types['draw_time'] = draw_time
+apt_post_types['draw_time_fig'] = draw_time_fig
 
+def draw_time(name='draw_time',**kwargs):
+    
+    def func(self,apt_fig,**kwargs):
+        # time_units is a string of the units of time
+        time_units = kwargs.get('time_units', '')
+        text_fontsize = kwargs.get('text_fontsize', None)
+        color = kwargs.get('color', 'black')
+        text_x = kwargs.get('text_x', 0.75)
+        text_y = kwargs.get('text_y', 0.75)
+        text_objects = []
+        for plot in self.post_plots:
+            time = plot.data.time
+            # if plot.data != apt_fig.data:
+            #     print(f"{plot}.data is not the same as afig's data, I think it still prints on the subplot's data i.e correct though")
+            text_object = plot.ax.text(text_x, text_y, f"t = {time:.2f} {time_units}"
+                        ,transform=plot.ax.transAxes
+                         ,fontsize=text_fontsize
+                         ,color=color)
+            text_objects.append(text_object)
+        # text_object = apt_fig.fig.text(text_x, text_y, f"t = {apt_fig.data.time:.2f} {time_units}"
+        #                  ,transform=apt_fig.fig.transFigure
+        #                  ,fontsize=text_fontsize
+        #                  ,color=color)
+        
+        # apt_fig.time_text = text_object
+        self.time_texts = text_objects
+        return None
+    
+    def update_func(self,apt_fig,**kwargs):
+        if hasattr(self, 'time_texts'):
+            for text_object in self.time_texts:
+                text_object.remove()
+        func(self, apt_fig, **kwargs)
+        return None
+    
+    return apt_post(name, func, update_func, **kwargs)
+apt_post_types['draw_time'] = draw_time
 # %%
 #########################################################################
 
