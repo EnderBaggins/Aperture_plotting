@@ -130,7 +130,12 @@ class apt_plot:
                        # in that case the plot_function must be able to handle multiple data objects
         self.step = kwargs.get('step',0) # does not yet work for list of steps
 
-        self._construct_plot(fld_val,**kwargs)
+        self.own_plot = kwargs.get('own_plot',False) # if the plot_function is a custom one
+        if self.own_plot:
+            self._construct_own_plot(plot_function)
+        else:
+            self._construct_plot(fld_val,**kwargs)
+
         self.set_default_parameters()
         self.parameters.update(kwargs) #override the defaults
     
@@ -189,7 +194,9 @@ class apt_plot:
                 
             self.fld_val = fld_val_list
 
-        
+    def _construct_own_plot(self,plot_function):
+        self.plot_function = plot_function
+        # In case I need to do special things to make it work
         
     def set_default_parameters(self):
         #self.parameters['cmap'] = 'hot_and_cold'
@@ -205,6 +212,9 @@ class apt_plot:
         Loads the data at the step
 
         """
+        if self.own_plot:
+            print("Custom plot not set step")
+            return #Does not update step for custom plots
         if step is None:
             # will load the data on self.step
             # this is since data can have different steps
@@ -242,6 +252,11 @@ class apt_plot:
         Arguments:
         **kwargs: the parameters to override the default parameters
         """
+        if self.own_plot:
+            self.plot_function(self.ax)
+            # this is for custom plots 
+            return
+        
         self.set_step(kwargs.get('step',None))
         parameters = self.override_params(**kwargs)
         
@@ -255,6 +270,11 @@ class apt_plot:
         Updates the plot with the current data and parameters
         It updates data as opposed to fully redrawing the plot
         """
+        if self.own_plot:
+            print("Custom plot not updated")
+            # self.plot_function(self.ax)
+            # TODO find a way to allow users to have their plots update with say timesteps
+            return
         #is basically make_plot but doesn't set_plot_attr
         # so probably rather superfluous but its here in case update needs to be different
         self.set_step(kwargs.get('step',None))
@@ -264,7 +284,7 @@ class apt_plot:
             raise ValueError("No plot object to update, make_fig first")
         self.plot_object = self.plot_function(self, **parameters)
         return
-        
+    
     def set_plot_attr(self, **kwargs):
         """
         Sets the attributes of the plot with the given parameters
@@ -1197,6 +1217,23 @@ class apt_fig:
         ap.logscale = logscale
 
         self._add_plot(name,ap,**kwargs)
+
+    def add_own_plot(self, name, plot_function, **kwargs):
+        '''
+        Adds a custom plot to the figure
+        plot_function must be of form
+        def name(ax):
+            ## do plotting on this ax object
+            #e.g
+            x = np.linspace(0,10,100)
+            y = np.sin(x)
+            ax.plot(x,y)
+        '''
+        if not callable(plot_function):
+            raise ValueError("plot_function must be a callable function with ax as the only argument")
+        ap = apt_plot(name, None, None, plot_function = plot_function,own_plot=True, **kwargs)
+        self._add_plot(name, ap,**kwargs)
+        
 
     def print_info(self):
         """Prints the information of the figure for easy debugging"""
