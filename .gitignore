@@ -1,4 +1,5 @@
 *.ipynb
+!magnetar.ipynb
 *.pyc
 __pycache__
 *.png

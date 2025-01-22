@@ -272,7 +272,8 @@ class apt_plot:
         """
         if self.own_plot:
             print("Custom plot not updated")
-            # self.plot_function(self.ax)
+            self.ax.cla()
+            self.plot_function(self.ax)
             # TODO find a way to allow users to have their plots update with say timesteps
             return
         #is basically make_plot but doesn't set_plot_attr
@@ -1473,7 +1474,13 @@ def colorplot(apt_plot_object,**kwargs):
             raise ValueError("x_grid must be a numpy array, try making a linspace from xlow to xhigh and meshgrid with yextent")
         if not isinstance(y_grid, np.ndarray):
             raise ValueError("y_grid must be a numpy array, try making a linspace from ylow to yhigh and meshgrid with xextent")
-            
+        logscale = getattr(ap, 'logscale', False)
+        # if logscale:
+        #     vmin = params.pop("vmin", ap.fld_val(data).min())
+        #     vmax = params.pop("vmax", ap.fld_val(data).max())
+        #     norm = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
+        #     c = run_function_safely(ax.pcolormesh, x_grid, y_grid, ap.fld_val(data), norm=norm, **params)
+        # else:
         c = run_function_safely(ax.pcolormesh, x_grid, y_grid, ap.fld_val(data), **params)
         
         #include the colorbar
@@ -1481,8 +1488,11 @@ def colorplot(apt_plot_object,**kwargs):
             divider = make_axes_locatable(ax)
             cax = divider.append_axes("right", size="5%", pad=0.05)
             cbar = plt.colorbar(c, cax=cax)
-            from matplotlib.ticker import ScalarFormatter
-            cbar.ax.yaxis.set_major_formatter(ScalarFormatter(useMathText=True))
+            from matplotlib.ticker import ScalarFormatter, FormatStrFormatter
+            formatter = ScalarFormatter(useMathText=True)
+            formatter.set_powerlimits((0, 0))
+            cbar.ax.yaxis.set_major_formatter(formatter)
+
             
             #saves the cbar object to the apt_plot object if needed to be used
             apt_plot_object.cbar = cbar
@@ -1832,11 +1842,11 @@ def draw_field_line(name='draw_field_line',**kwargs):
             flux_foot = flux[theta_foot_index,r_foot_index] # yes these seem flipped but its the way it is
             footpoint_fluxes.append(flux_foot)
 
-        
+        color = kwargs.get('color', 'green')
         for plot in self.post_plots:
             if data != plot.data:
                 print(f"{plot}.data is not the same as afig's data, will plot but flux is from afig's data not plot's data")
-            contours = plot.ax.contour(data.x1, data.x2, flux, footpoint_fluxes, colors='green', linewidths=1)
+            contours = plot.ax.contour(data.x1, data.x2, flux, np.sort(footpoint_fluxes), colors=color, linewidths=1)
             setattr(plot, name, contours)
             # to access for update later
         return None
