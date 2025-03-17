@@ -448,18 +448,42 @@ class apt_post:
         return parameters
 
     def make_post(self,apt_fig_obj, **kwargs):
+        '''Runs a post processing function on the figure
+        The post_func needs to be of the form func(self, data, ax, **kwargs)
+        func needs to return the matplotlib object that was created or a list of such objects'''
         parameters = self.override_params(**kwargs)
         # need to pass self into these functions
         # to allow the post_func to access self parameters
-        self.post_func(self,apt_fig = apt_fig_obj, **parameters)
+        for plot in self.post_plots: # i.e the apt_plot objects listed for this function to act on
+            data = plot.data
+            ax = plot.ax
+            if data != apt_fig_obj.data:
+                print("I haven't tested plot.data mismatch from afig.data much")
+            if self.post_func is None:
+                raise ValueError(f"{self.name} has no post_func")
+            
+            post_data = self.post_func(self,data,ax, **parameters)
+            setattr(plot, self.name, post_data)
 
     def update_post(self, apt_fig_obj, **kwargs):
+        ''' Removes the old post processing data
+        then recalls make_post could be implemented in make_post but eh'''
         parameters = self.override_params(**kwargs)
-        if self.update_func is None:
-            if debug.enabled and debug.level <= 0:
-                print(f"    {self.name} not updated")
-        else:
-            self.update_func(self,apt_fig_obj, **parameters)
+        for plot in self.post_plots:
+            if hasattr(plot,self.name):
+                mpl_data = getattr(plot,self.name)
+                if not isinstance(mpl_data,list):
+                    mpl_data = [mpl_data]
+                for obj in mpl_data:
+                    obj.remove()
+                delattr(plot,self.name)
+                # getattr(plot,self.name).remove()
+        self.make_post(apt_fig_obj, **parameters)
+        # if self.update_func is None: # old method
+        #     if debug.enabled and debug.level <= 0:
+        #         print(f"    {self.name} not updated")
+        # else:
+        #     self.update_func(self,apt_fig_obj, **parameters)
 
     def set_fontsize(self, **kwargs):
         parameters = self.override_params(**kwargs)
@@ -1751,46 +1775,20 @@ apt_post_types = {}
 def draw_field_lines1(name='draw_field_lines1',**kwargs):
     '''
     draw_field_lines is a generator for post processing class object
-
-    its func requires apt_fig as input
     This stores the contour lines in each plot object
-
-    the update is optional and also requires apt_fig
-    this deletes the old contour lines and recalls func
-
 
     Current problems is it required Bp inside the config of the dataset
     '''
-    def func(self,apt_fig,**kwargs):
-        data = apt_fig.data # will need to change to be plot.data instead as each plot has its own data reference
+    def func(self,data,ax,**kwargs):
         Bmax = kwargs.get('Bp',data.conf["Bp"])
         flux    = np.cumsum(data.B1 * data._rv * data._rv * np.sin(data._thetav) * data._dtheta, axis=0)
-        #flux = data.flux
         clevels = np.linspace(0.0, np.sqrt(Bmax), 10)**2
         #clevels = np.linspace(0.0, Bmax, 10)
-        
-        for plot in self.post_plots:
-            if data != plot.data:
-                print(f"{plot}.data is not the same as afig's data, will plot but flux is from afig's data not plot's data")
-            contours = plot.ax.contour(data.x1, data.x2, flux, clevels, colors='green', linewidths=1)
-            setattr(plot, name, contours)
-            # to access for update later
-        return None
-    
-    def update_func(self,apt_fig,**kwargs):
-        
-        for plot in self.post_plots:
-            if hasattr(plot, name):
-                for c in getattr(plot, name).collections:
-                    c.remove()
-        func(self,apt_fig,**kwargs)
-            
-        if debug.enabled and debug.level <= 1:
-            print(f"Updated {name} at timestep {apt_fig.step}")
-        return None
-    
-    return apt_post(name, func, update_func, **kwargs)
+        contours = ax.contour(data.x1, data.x2, flux, clevels, colors='green', linewidths=1)
+        return contours
+    return apt_post(name, func, **kwargs)
 apt_post_types['draw_field_lines1'] = draw_field_lines1
+
 def convert_to_index(ax_index,value,data):
         # takes an x1,x2 (x3) value and converts it into an index on the grid
         lower = data.conf["lower"][ax_index]
@@ -1812,8 +1810,8 @@ def draw_field_line(name='draw_field_line',**kwargs):
     this deletes the old contour lines and recalls func
 
     '''
-    def func(self,apt_fig,**kwargs):
-        data = apt_fig.data # will need to change to be plot.data instead as each plot has its own data reference
+    def func(self,data,ax,**kwargs):
+        # data = apt_fig.data # will need to change to be plot.data instead as each plot has its own data reference
         # Bmax = kwargs.get('Bp',data.conf["Bp"])
         th_foot = kwargs.get('th_foot',np.pi/4)
         r_max = kwargs.get('r_max',None)
@@ -1828,8 +1826,6 @@ def draw_field_line(name='draw_field_line',**kwargs):
                 th_foot.append(np.arcsin(np.sqrt(1/r)))
             # th_foot = np.arcsin(np.sqrt(1/r_max))
         
-        
-
         flux    = np.cumsum(data.B1 * data._rv * data._rv * np.sin(data._thetav) * data._dtheta, axis=0)
         #flux = data.flux
         # Find the index corresponding to the footpoint
@@ -1843,27 +1839,14 @@ def draw_field_line(name='draw_field_line',**kwargs):
             footpoint_fluxes.append(flux_foot)
 
         color = kwargs.get('color', 'green')
-        for plot in self.post_plots:
-            if data != plot.data:
-                print(f"{plot}.data is not the same as afig's data, will plot but flux is from afig's data not plot's data")
-            contours = plot.ax.contour(data.x1, data.x2, flux, np.sort(footpoint_fluxes), colors=color, linewidths=1)
-            setattr(plot, name, contours)
+        # for plot in self.post_plots:
+        #     if data != plot.data:
+        #         print(f"{plot}.data is not the same as afig's data, will plot but flux is from afig's data not plot's data")
+        contours = ax.contour(data.x1, data.x2, flux, np.sort(footpoint_fluxes), colors=color, linewidths=1)
+            # setattr(plot, name, contours)
             # to access for update later
-        return None
-    
-    def update_func(self,apt_fig,**kwargs):
-        
-        for plot in self.post_plots:
-            if hasattr(plot, name):
-                for c in getattr(plot, name).collections:
-                    c.remove()
-        func(self,apt_fig,**kwargs)
-            
-        if debug.enabled and debug.level <= 1:
-            print(f"Updated {name} at timestep {apt_fig.step}")
-        return None
-    
-    return apt_post(name, func, update_func, **kwargs)
+        return contours
+    return apt_post(name, func, **kwargs)
 apt_post_types['draw_field_line'] = draw_field_line
         
 
@@ -1871,6 +1854,7 @@ apt_post_types['draw_field_line'] = draw_field_line
 def draw_time_fig(name='draw_time_fig',**kwargs):
     
     def func(self,apt_fig,**kwargs):
+        print("Draw_time_fig is probably broken with new method of post_proc")
         # time_units is a string of the units of time
         time_units = kwargs.get('time_units', '')
         text_fontsize = kwargs.get('text_fontsize', None)
@@ -1895,41 +1879,30 @@ def draw_time_fig(name='draw_time_fig',**kwargs):
 apt_post_types['draw_time_fig'] = draw_time_fig
 
 def draw_time(name='draw_time',**kwargs):
-    
-    def func(self,apt_fig,**kwargs):
+    def func(self,data,ax,**kwargs):
         # time_units is a string of the units of time
         time_units = kwargs.get('time_units', '')
         text_fontsize = kwargs.get('text_fontsize', None)
         color = kwargs.get('color', 'black')
         text_x = kwargs.get('text_x', 0.75)
         text_y = kwargs.get('text_y', 0.75)
-        text_objects = []
-        for plot in self.post_plots:
-            time = plot.data.time
-            # if plot.data != apt_fig.data:
-            #     print(f"{plot}.data is not the same as afig's data, I think it still prints on the subplot's data i.e correct though")
-            text_object = plot.ax.text(text_x, text_y, f"t = {time:.2f} {time_units}"
-                        ,transform=plot.ax.transAxes
-                         ,fontsize=text_fontsize
-                         ,color=color)
-            text_objects.append(text_object)
+        # text_objects = []
+        # for plot in self.post_plots:
+        time = data.time
+        text_object = ax.text(text_x, text_y, f"t = {time:.2f} {time_units}"
+                    ,transform=ax.transAxes
+                        ,fontsize=text_fontsize
+                        ,color=color)
+        # text_objects.append(text_object)
         # text_object = apt_fig.fig.text(text_x, text_y, f"t = {apt_fig.data.time:.2f} {time_units}"
         #                  ,transform=apt_fig.fig.transFigure
         #                  ,fontsize=text_fontsize
         #                  ,color=color)
         
         # apt_fig.time_text = text_object
-        self.time_texts = text_objects
-        return None
-    
-    def update_func(self,apt_fig,**kwargs):
-        if hasattr(self, 'time_texts'):
-            for text_object in self.time_texts:
-                text_object.remove()
-        func(self, apt_fig, **kwargs)
-        return None
-    
-    return apt_post(name, func, update_func, **kwargs)
+        # self.time_texts = text_objects
+        return text_object
+    return apt_post(name, func, **kwargs)
 apt_post_types['draw_time'] = draw_time
 # %%
 #########################################################################
@@ -1947,13 +1920,12 @@ def draw_NS(name='draw_NS',**kwargs):
     color: the color of the neutron star (default black)
     transparency: the transparency of the neutron star (default 0.5) (i.e with black it makes gray)
     '''
-    def func(self,**kwargs): 
+    def func(self,data,ax,**kwargs): 
         r = kwargs.get("Radius",1)
         color = kwargs.get("color","black")
         transparency = kwargs.get("transparancy",0.5)
-        for plot in self.post_plots:
-            plot.ax.add_patch(plt.Circle((0,0),r,fill=True, color=color, alpha=transparency))
-
+        star =ax.add_patch(plt.Circle((0,0),r,fill=True, color=color, alpha=transparency))
+        return star
     return apt_post(name, func, **kwargs)
 apt_post_types['draw_NS'] = draw_NS
 
