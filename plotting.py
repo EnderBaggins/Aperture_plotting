@@ -457,8 +457,6 @@ class apt_post:
         for plot in self.post_plots: # i.e the apt_plot objects listed for this function to act on
             data = plot.data
             ax = plot.ax
-            if data != apt_fig_obj.data:
-                print("I haven't tested plot.data mismatch from afig.data much")
             if self.post_func is None:
                 raise ValueError(f"{self.name} has no post_func")
             
@@ -545,7 +543,7 @@ class apt_fig:
         # and it's subplots. even accounts for empty subplots
         self.columns = 1      # number of columns
         self.rows = 1         # number of rows
-
+        self.plot_folder = kwargs.get('plot_folder', os.getcwd())
         self.parameters.update(kwargs) #override the defaults
     
         self.add_plot_functions = {"add_colorplot": self.add_colorplot, "add_lineout_plot": self.add_lineout_plot
@@ -861,6 +859,8 @@ class apt_fig:
         self.set_size()
         self.fig.tight_layout()
         self.made = True # marks that the figure has been made
+        if kwargs.get('save_fig',False):
+            self.fig.savefig(f"{self.plot_folder}/{kwargs.get('save_name', 'Untitled')}.png")
         return self.fig
     
     # uses matplotlib's set_size_inches method, just a simple wrapper to use set_size_inches with my code
@@ -949,7 +949,7 @@ class apt_fig:
         # movie parameters
         fps = kwargs.get('fps', 25)
         pic_folder = kwargs.get('pic_folder', 'movie_plots')
-        save_folder = kwargs.get('save_folder', 'movies')
+        save_folder = kwargs.get('save_folder', f'{self.plot_folder}movies')
         #save_name as explicit argument
         self.making_movie = True # this is to allow update_fig to do unique things in make movie (like not printing an error)
         if end is None:
@@ -1480,31 +1480,32 @@ def colorplot(apt_plot_object,**kwargs):
     if debug.enabled and debug.level <= 0:
         print(f"{ap.name} is plotting colorplot with parameters {params}")
     
-    
     from warnings import filterwarnings
     filterwarnings("ignore", category=UserWarning, message="The input coordinates to pcolormesh are interpreted as cell centers.*")
-    # passing params into pcolormesh crashes, so we need to remove problematic ones with run_function_safely
+    
+    # Handle logscale parameter
+    logscale = kwargs.get('logscale', False)
+    if logscale:
+        vmin = kwargs.get("vmin", ap.fld_val(data).min())
+        vmax = kwargs.get("vmax", ap.fld_val(data).max())
+        params['norm'] = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
+        # Remove vmin/vmax from params since they're handled by LogNorm
+        params.pop('vmin', None)
+        params.pop('vmax', None)
     
     if hasattr(ap,"plotmade"): # merely updates the data as opposed to redrawing
         if ap.plotmade:
             ap.plot_object.set_array(ap.fld_val(data).flatten())
             return ap.plot_object
     else:
-        
         #implementing a variable x_extent and y_extent
-        x_grid =params.get("x_grid",data.x1)# allows for a n input of the linspace as opposed to just data.xi
-        y_grid =params.get("y_grid",data.x2)
+        x_grid = params.pop("x_grid", data.x1)
+        y_grid = params.pop("y_grid", data.x2)
         if not isinstance(x_grid, np.ndarray):
             raise ValueError("x_grid must be a numpy array, try making a linspace from xlow to xhigh and meshgrid with yextent")
         if not isinstance(y_grid, np.ndarray):
             raise ValueError("y_grid must be a numpy array, try making a linspace from ylow to yhigh and meshgrid with xextent")
-        logscale = getattr(ap, 'logscale', False)
-        # if logscale:
-        #     vmin = params.pop("vmin", ap.fld_val(data).min())
-        #     vmax = params.pop("vmax", ap.fld_val(data).max())
-        #     norm = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
-        #     c = run_function_safely(ax.pcolormesh, x_grid, y_grid, ap.fld_val(data), norm=norm, **params)
-        # else:
+        
         c = run_function_safely(ax.pcolormesh, x_grid, y_grid, ap.fld_val(data), **params)
         
         #include the colorbar
@@ -1512,13 +1513,37 @@ def colorplot(apt_plot_object,**kwargs):
             divider = make_axes_locatable(ax)
             cax = divider.append_axes("right", size="5%", pad=0.05)
             cbar = plt.colorbar(c, cax=cax)
-            from matplotlib.ticker import ScalarFormatter, FormatStrFormatter
-            formatter = ScalarFormatter(useMathText=True)
-            formatter.set_powerlimits((0, 0))
-            cbar.ax.yaxis.set_major_formatter(formatter)
 
-            
-            #saves the cbar object to the apt_plot object if needed to be used
+            if logscale:
+                # For logscale, use a custom LogFormatter
+                from matplotlib.ticker import LogFormatter, LogLocator
+
+                # Create a custom formatter that formats labels as 1e-n
+                class CustomLogFormatter(LogFormatter):
+                    def __call__(self, value, tickdir=None):
+                        # return f"1e{int(np.log10(value))}"  # Format as 1e-n
+                        return f"$10^{{{int(np.log10(value))}}}$"
+
+                formatter = CustomLogFormatter(labelOnlyBase=False)
+                cbar.ax.yaxis.set_major_formatter(formatter)
+                cbar.ax.yaxis.set_major_locator(LogLocator())
+
+                # Set ticks at the top and bottom
+                ticks = [10**i for i in range(int(np.log10(vmin)), int(np.log10(vmax)) + 1)]
+                
+                ticks = params.get("ticks", ticks)
+                cbar.set_ticks(ticks)  # Set ticks at the specified locations
+                cbar.ax.yaxis.set_tick_params(labelsize=10)  # Adjust label size if needed
+                # Add ticks to the top of the colorbar
+                cbar.ax.yaxis.set_ticks_position('both')  # Show ticks on both sides
+            else:
+                # Keep existing scientific notation for linear scale
+                from matplotlib.ticker import ScalarFormatter
+                formatter = ScalarFormatter(useMathText=True)
+                formatter.set_powerlimits((0, 0))
+                cbar.ax.yaxis.set_major_formatter(formatter)
+
+            # Save the cbar object to the apt_plot object if needed to be used
             apt_plot_object.cbar = cbar
 
         ap.plotmade = True
