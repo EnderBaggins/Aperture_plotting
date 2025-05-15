@@ -309,6 +309,10 @@ class apt_plot:
 
         if parameters.get("legend",False):
             self.ax.legend()
+        if parameters.get("hide_yaxis",False):
+            self.ax.yaxis.set_visible(False)
+        if parameters.get("hide_xaxis",False):
+            self.ax.xaxis.set_visible(False)
         
 
     
@@ -456,6 +460,7 @@ class apt_post:
         # to allow the post_func to access self parameters
         for plot in self.post_plots: # i.e the apt_plot objects listed for this function to act on
             data = plot.data
+            data.load(plot.step) # loads the data at the step
             ax = plot.ax
             if self.post_func is None:
                 raise ValueError(f"{self.name} has no post_func")
@@ -473,7 +478,8 @@ class apt_post:
                 if not isinstance(mpl_data,list):
                     mpl_data = [mpl_data]
                 for obj in mpl_data:
-                    obj.remove()
+                    if obj is not None:
+                        obj.remove()
                 delattr(plot,self.name)
                 # getattr(plot,self.name).remove()
         self.make_post(apt_fig_obj, **parameters)
@@ -502,9 +508,7 @@ aperture_figure_objects = {}
 
 class apt_fig:
     '''
-    apt_fig is a one dataset class object storing all the information necessary to plot a figure of subplots
-    this will have children objects that will store the information necessary to plot the data of one subplot
-    
+    Note: you can use sutplot_adjust parameters wspace, hspace, top, bottom, left, right as kwargs
     Attributes:
     unique_ident (str): a unique identifier for the figure (used to delete old figures)
     fig (matplotlib.figure.Figure): the matplotlib figure object
@@ -521,6 +525,13 @@ class apt_fig:
 
     '''
     def __init__(self,data, unique_ident= "default_identifier", **kwargs):
+        '''
+        Useful kwargs:
+        - data: the APERTURE data object to be used for the figure
+        - plot_folder: the folder to save the plots in
+        - wspace, hspace, top, bottom, left, right: the spacing of the subplots (overrides tight_layout)
+
+        '''
         global aperture_figure_objects
         #ensures uniqueness of the object
         # i.e you can recreate the same object and it overrides the old one
@@ -545,7 +556,6 @@ class apt_fig:
         self.rows = 1         # number of rows
         self.plot_folder = kwargs.get('plot_folder', os.getcwd())
         self.parameters.update(kwargs) #override the defaults
-    
         self.add_plot_functions = {"add_colorplot": self.add_colorplot, "add_lineout_plot": self.add_lineout_plot
                                    , "add_particle_hist": self.add_particle_hist, "add_spectrum_plot": self.add_spectrum_plot}
         
@@ -857,7 +867,26 @@ class apt_fig:
         # fontsize is rough, so it has its own methods
         self.set_fontsize(**parameters)
         self.set_size()
-        self.fig.tight_layout()
+        if any(key in parameters for key in ["wspace", "hspace", "top", "bottom", "left", "right"]):
+            wspace = parameters.get('wspace', None)
+            hspace = parameters.get('hspace', None)
+            top = parameters.get('top', None)
+            bottom = parameters.get('bottom', None)
+            left = parameters.get('left', None)
+            right = parameters.get('right', None)
+            # print(f"  Adjusting figure layout with wspace={wspace}, hspace={hspace}, top={top}, bottom={bottom}, left={left}, right={right}")
+            self.fig.subplots_adjust(wspace=wspace, hspace=hspace,top=top,bottom=bottom,left=left,right=right)
+        else:
+            self.fig.tight_layout()
+        # plot_pad = parameters.get('plot_pad', 0.1)
+        # plot_w_pad = parameters.get('plot_w_pad', 0.1)
+        # plot_h_pad = parameters.get('plot_h_pad', 0.1)
+        # self.fig.tight_layout(pad=plot_pad, w_pad=plot_w_pad, h_pad=plot_h_pad)
+        # if hasattr(self,"wspace"):
+        #     self.fig.subplots_adjust(wspace=self.wspace)
+        # if hasattr(self,"hspace"):
+        #     self.fig.subplots_adjust(hspace=self.hspace)
+        
         self.made = True # marks that the figure has been made
         if kwargs.get('save_fig',False):
             self.fig.savefig(f"{self.plot_folder}/{kwargs.get('save_name', 'Untitled')}.png")
@@ -880,7 +909,44 @@ class apt_fig:
         # This allows for make_fig to call set_size even without having a preset shape
         if shape is not None:
             self.fig.set_size_inches(shape,**kwargs)
-        
+    
+    def set_plot_attr(self,plots,**kwargs):
+        """
+        Sets the attributes of the plots mainly for add_own_plot in which parameters may not work
+        works with attr: xlim, ylim, title, cmap, aspect, ylabel, xlabel, vmin?, vmax?
+        """
+        if plots == "all":
+            plots = list(self.plots.values())
+        elif isinstance(plots, str):
+            plots = [self.plots[plots]]
+        else:
+            plots = [self.plots[plot] for plot in plots]
+        xlim = kwargs.get('xlim',None)
+        ylim = kwargs.get('ylim',None)
+        title = kwargs.get('title',None)
+        cmap = kwargs.get('cmap',None)
+        aspect = kwargs.get('aspect',None)
+        ylabel = kwargs.get('ylabel',None)
+        xlabel = kwargs.get('xlabel',None)
+        vmin = kwargs.get('vmin',None)
+        vmax = kwargs.get('vmax',None)
+        for plot in plots:
+            if xlim is not None:
+                plot.ax.set_xlim(xlim)
+            if ylim is not None:
+                plot.ax.set_ylim(ylim)
+            if title is not None:
+                plot.ax.set_title(title)
+            if cmap is not None:
+                plot.ax.set_cmap(cmap)
+            if aspect is not None:
+                plot.ax.set_aspect(aspect)
+            if ylabel is not None:
+                plot.ax.set_ylabel(ylabel)
+            if xlabel is not None:
+                plot.ax.set_xlabel(xlabel)
+            if vmin is not None:
+                plot.ax.set_xlim(vmin,vmax)
     #updates the fig with a new step (not remaking the figure) so hopefully quicker
     def update_fig(self, step = None,set_plot_attr=False, **kwargs):
         """
@@ -1034,12 +1100,11 @@ class apt_fig:
     def add_colorplot(self, name, fld_val= None,data= None, **kwargs):
         """
         Adds a 2D colorplot to the figure of the given field value of the data
-        Arguments:
-        name (str): the name of the plot
-        fld_val: the field value to plot either a key in data or a lambda function of data
-        data (Data object, optional): the data object that the plot will be made from (defaulted to figure data)
-        x_grid,y_grid (optional: default data.x1,data.x2): the extent of the plot
-        **kwargs: Additional arguments to override the default parameters
+        - name (str): the name of the plot
+        - fld_val: the field value to plot either a key in data or a lambda function of data
+        - data (Data object, optional): the data object that the plot will be made from (defaulted to figure data)
+        - x_grid,y_grid (optional: default data.x1,data.x2): the extent of the plot
+        - **kwargs: Additional arguments to override the default parameters
         """
         global colorplot
 
@@ -1462,7 +1527,6 @@ def run_function_safely(func, *args, **kwargs):
 #########################################################
 #########################################################
 # Here there be the main functions for plotting
-
 def colorplot(apt_plot_object,**kwargs):
     '''
     The Colorplot is a plotting function
@@ -1475,7 +1539,160 @@ def colorplot(apt_plot_object,**kwargs):
     data = ap.data
     ax = ap.ax
     kwargs.setdefault("rasterized", True)
+    cbar_size = ap.parameters.get("cbar_size", "5%")
+    cbar_pad = ap.parameters.get("cbar_pad", 0.05)
+    cbar_pos = ap.parameters.get("cbar_pos", "right")
+    # print(f"cbar_pos: {cbar_pos}")
+    params = match_param(kwargs, ax.pcolormesh)
     
+    from warnings import filterwarnings
+    filterwarnings("ignore", category=UserWarning, message="The input coordinates to pcolormesh are interpreted as cell centers.*")
+    
+    # Handle logscale parameter
+    logscale = kwargs.get('logscale', False)
+    symlogscale = kwargs.get('symlogscale', False)
+    if logscale:
+        vmin = kwargs.get("vmin", ap.fld_val(data).min())
+        vmax = kwargs.get("vmax", ap.fld_val(data).max())
+        params['norm'] = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
+        # Remove vmin/vmax from params since they're handled by LogNorm
+        params.pop('vmin', None)
+        params.pop('vmax', None)
+    elif symlogscale:
+        vmin = kwargs.get("vmin", ap.fld_val(data).min())
+        vmax = kwargs.get("vmax", ap.fld_val(data).max())
+        linthresh = kwargs.get("linthresh", 1e-3)
+        linscale = kwargs.get("linscale", 1e-3)
+        params['norm'] = matplotlib.colors.SymLogNorm(linthresh=linthresh, linscale=linscale, vmin=vmin, vmax=vmax)
+        # Remove vmin/vmax from params since they're handled by LogNorm
+        params.pop('vmin', None)
+        params.pop('vmax', None)
+    
+    if hasattr(ap,"plotmade"): # merely updates the data as opposed to redrawing
+        if ap.plotmade:
+            ap.plot_object.set_array(ap.fld_val(data).flatten())
+            return ap.plot_object
+    else:
+        #implementing a variable x_extent and y_extent
+        x_grid = params.pop("x_grid", data.x1)
+        y_grid = params.pop("y_grid", data.x2)
+        if not isinstance(x_grid, np.ndarray):
+            raise ValueError("x_grid must be a numpy array, try making a linspace from xlow to xhigh and meshgrid with yextent")
+        if not isinstance(y_grid, np.ndarray):
+            raise ValueError("y_grid must be a numpy array, try making a linspace from ylow to yhigh and meshgrid with xextent")
+        
+        c = run_function_safely(ax.pcolormesh, x_grid, y_grid, ap.fld_val(data), **params)
+        
+        #include the colorbar
+        if ap.parameters.get("include_colorbar",True):
+            divider = make_axes_locatable(ax)
+            orientation = "horizontal" if cbar_pos in ["top", "bottom"] else "vertical"
+            cax = divider.append_axes(cbar_pos, size=cbar_size, pad=cbar_pad)
+            cbar = plt.colorbar(c, cax=cax,orientation=orientation)
+            
+            if logscale:
+                # For logscale, use a custom LogFormatter
+                from matplotlib.ticker import LogFormatter, LogLocator
+
+                # Create a custom formatter that formats labels as 1e-n
+                class CustomLogFormatter(LogFormatter):
+                    def __call__(self, value, tickdir=None):
+                        # return f"1e{int(np.log10(value))}"  # Format as 1e-n
+                        return f"$10^{{{int(np.log10(value))}}}$"
+
+                formatter = CustomLogFormatter(labelOnlyBase=False)
+                # Set ticks 
+                ticks = [10**i for i in range(int(np.log10(vmin)), int(np.log10(vmax)) + 1)]
+                ticks = params.get("ticks", ticks)
+                cbar.set_ticks(ticks)  # Set ticks at the specified locations
+                if orientation == "horizontal":
+                    cbar.ax.xaxis.set_major_formatter(formatter)
+                    cbar.ax.xaxis.set_major_locator(LogLocator())
+                    if cbar_pos == "top":
+                        cbar.ax.xaxis.set_ticks_position("top")
+                        cbar.ax.xaxis.set_label_position("top")
+                    else:
+                        cbar.ax.xaxis.set_ticks_position("bottom")
+                        cbar.ax.xaxis.set_label_position("bottom")
+                else:
+                    cbar.ax.yaxis.set_major_formatter(formatter)
+                    cbar.ax.yaxis.set_major_locator(LogLocator())
+                    if cbar_pos == "left":
+                        cbar.ax.yaxis.set_ticks_position("left")
+                        cbar.ax.yaxis.set_label_position("left")
+                    else:
+                        cbar.ax.yaxis.set_ticks_position("right")
+                        cbar.ax.yaxis.set_label_position("right")
+            elif symlogscale:
+                from matplotlib.ticker import SymmetricalLogLocator, FormatStrFormatter
+                linthresh = kwargs.get("linthresh", 1e-3)
+                linscale = kwargs.get("linscale", 1e-3)
+                # Set locator and formatter for symlog
+                locator = SymmetricalLogLocator(linthresh=linthresh, base=10)
+                formatter = FormatStrFormatter("%.1g")
+                if orientation == "horizontal":
+                    cbar.ax.xaxis.set_major_locator(locator)
+                    cbar.ax.xaxis.set_major_formatter(formatter)
+                    if cbar_pos == "top":
+                        cbar.ax.xaxis.set_ticks_position("top")
+                        cbar.ax.xaxis.set_label_position("top")
+                    else:
+                        cbar.ax.xaxis.set_ticks_position("bottom")
+                        cbar.ax.xaxis.set_label_position("bottom")
+                else:
+                    cbar.ax.yaxis.set_major_locator(locator)
+                    cbar.ax.yaxis.set_major_formatter(formatter)
+                    if cbar_pos == "left":
+                        cbar.ax.yaxis.set_ticks_position("left")
+                        cbar.ax.yaxis.set_label_position("left")
+                    else:
+                        cbar.ax.yaxis.set_ticks_position("right")
+                        cbar.ax.yaxis.set_label_position("right")
+            else:
+                # Keep existing scientific notation for linear scale
+                from matplotlib.ticker import ScalarFormatter
+                formatter = ScalarFormatter(useMathText=True)
+                formatter.set_powerlimits((0, 0))
+                if orientation == "horizontal":
+                    cbar.ax.xaxis.set_major_formatter(formatter)
+                    if cbar_pos == "top":
+                        cbar.ax.xaxis.set_ticks_position("top")
+                        cbar.ax.xaxis.set_label_position("top")
+                    else:
+                        cbar.ax.xaxis.set_ticks_position("bottom")
+                        cbar.ax.xaxis.set_label_position("bottom")
+
+                else:
+                    cbar.ax.yaxis.set_major_formatter(formatter)
+                    if cbar_pos == "left":
+                        cbar.ax.yaxis.set_ticks_position("left")
+                        cbar.ax.yaxis.set_label_position("left")
+                    else:
+                        cbar.ax.yaxis.set_ticks_position("right")
+                        cbar.ax.yaxis.set_label_position("right")
+                # cbar.ax.yaxis.set_major_formatter(formatter)
+
+            # Save the cbar object to the apt_plot object if needed to be used
+            # if cbar_pos =
+            apt_plot_object.cbar = cbar
+
+        ap.plotmade = True
+        return c
+def colorplot_old(apt_plot_object,**kwargs):
+    '''
+    The Colorplot is a plotting function
+    so it needs as input an object of the apt_plot class
+    as well as the data object
+    This function plots a pcolormesh plot on the axis
+    and includes a colorbar nicely placed on the right
+    ''' 
+    ap = apt_plot_object
+    data = ap.data
+    ax = ap.ax
+    kwargs.setdefault("rasterized", True)
+    cbar_size = ap.parameters.get("cbar_size", "5%")
+    cbar_pad = ap.parameters.get("cbar_pad", 0.05)
+    cbar_pos = ap.parameters.get("cbar_pos", "right")
     params = match_param(kwargs, ax.pcolormesh)
     if debug.enabled and debug.level <= 0:
         print(f"{ap.name} is plotting colorplot with parameters {params}")
@@ -1511,7 +1728,7 @@ def colorplot(apt_plot_object,**kwargs):
         #include the colorbar
         if ap.parameters.get("include_colorbar",True):
             divider = make_axes_locatable(ax)
-            cax = divider.append_axes("right", size="5%", pad=0.05)
+            cax = divider.append_axes(cbar_pos, size=cbar_size, pad=cbar_pad)
             cbar = plt.colorbar(c, cax=cax)
 
             if logscale:
@@ -1864,10 +2081,11 @@ def draw_field_line(name='draw_field_line',**kwargs):
             footpoint_fluxes.append(flux_foot)
 
         color = kwargs.get('color', 'green')
+        linewidth = kwargs.get('linewidth', 1)
         # for plot in self.post_plots:
         #     if data != plot.data:
         #         print(f"{plot}.data is not the same as afig's data, will plot but flux is from afig's data not plot's data")
-        contours = ax.contour(data.x1, data.x2, flux, np.sort(footpoint_fluxes), colors=color, linewidths=1)
+        contours = ax.contour(data.x1, data.x2, flux, np.sort(footpoint_fluxes), colors=color, linewidths=linewidth)
             # setattr(plot, name, contours)
             # to access for update later
         return contours
@@ -1877,7 +2095,6 @@ apt_post_types['draw_field_line'] = draw_field_line
 
 # %%
 def draw_time_fig(name='draw_time_fig',**kwargs):
-    
     def func(self,apt_fig,**kwargs):
         print("Draw_time_fig is probably broken with new method of post_proc")
         # time_units is a string of the units of time
@@ -1904,6 +2121,8 @@ def draw_time_fig(name='draw_time_fig',**kwargs):
 apt_post_types['draw_time_fig'] = draw_time_fig
 
 def draw_time(name='draw_time',**kwargs):
+    '''
+    args: text_x, text_y, text_fontsize, color,time_units'''
     def func(self,data,ax,**kwargs):
         # time_units is a string of the units of time
         time_units = kwargs.get('time_units', '')
