@@ -213,7 +213,11 @@ class Data:
       for n in self.ptc_steps:
         self.load_ptc(n)
         for i, id in enumerate(ptc_id):
-          result[n, i] = self.__getattr__(key)[self.tracked_ptc_id == id]
+          res = self.__getattr__(key)[self.tracked_ptc_id == id]
+          if len(res) > 0:# because result of this is a list, nan if more than one ptc with same id
+            result[n, i] = res[0]
+          else:
+            result[n, i] = np.nan
     else:
       result = np.zeros(len(self.ptc_steps))
       for n in self.ptc_steps:

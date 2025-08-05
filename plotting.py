@@ -131,8 +131,11 @@ class apt_plot:
         self.step = kwargs.get('step',0) # does not yet work for list of steps
 
         self.own_plot = kwargs.get('own_plot',False) # if the plot_function is a custom one
+        self.empty_plot = kwargs.get('empty_plot',False) # if the plot is empty (i.e no data to plot
         if self.own_plot:
             self._construct_own_plot(plot_function)
+        elif self.empty_plot:
+            pass
         else:
             self._construct_plot(fld_val,**kwargs)
 
@@ -215,6 +218,7 @@ class apt_plot:
         if self.own_plot:
             print("Custom plot not set step")
             return #Does not update step for custom plots
+        
         if step is None:
             # will load the data on self.step
             # this is since data can have different steps
@@ -255,6 +259,11 @@ class apt_plot:
         if self.own_plot:
             self.plot_function(self.ax)
             # this is for custom plots 
+            return
+        if self.empty_plot:
+            parameters = self.override_params(**kwargs)
+            self.set_plot_attr(**parameters)
+            # print(f"Empty plot {self.name} not made")
             return
         
         self.set_step(kwargs.get('step',None))
@@ -303,12 +312,16 @@ class apt_plot:
         for param in parameters:
             if param in attrs:
                 try:
-                    getattr(self.ax, f"set_{param}")(parameters[param])
+                    if param == "title" and hasattr(self,"cbar") and parameters.get("cbar_pos","right") == "top":
+                            self.cbar.set_label(parameters[param],fontsize=parameters.get("title_fontsize",12))
+                    else:
+                        getattr(self.ax, f"set_{param}")(parameters[param])
                 except Exception as e:
                     print(f"Could not set {param}: {e}")
 
         if parameters.get("legend",False):
-            self.ax.legend()
+            legend_loc = parameters.get("legend_loc", "best")
+            self.ax.legend(loc=legend_loc)
         if parameters.get("hide_yaxis",False):
             self.ax.yaxis.set_visible(False)
         if parameters.get("hide_xaxis",False):
@@ -428,11 +441,13 @@ class apt_post:
     (I'm considering making it more applicable with more functions to insert)
     '''
     def __init__(self, name, post_func=None, update_func=None, **kwargs):
-
+        # print(kwargs)
         self.post_func = post_func
         self.update_func = update_func
         self.post_plots = None # the list of plots to run post on
-
+        if "data" in kwargs: # if data is passed in, it will be used for the post processing
+            # print("hello")
+            self.data = kwargs.pop("data")
         self.parameters = {}
         self.name = name
 
@@ -459,13 +474,22 @@ class apt_post:
         # need to pass self into these functions
         # to allow the post_func to access self parameters
         for plot in self.post_plots: # i.e the apt_plot objects listed for this function to act on
-            data = plot.data
+            if hasattr(self,"data"):
+                data = self.data
+                # print("using data from post object not plot")
+            else:
+                data = plot.data
+            parameters.pop('data',None) # removes data from parameters if it exists
             data.load(plot.step) # loads the data at the step
             ax = plot.ax
+            ax.step= plot.step # sets the step of the axis to the plot step
             if self.post_func is None:
                 raise ValueError(f"{self.name} has no post_func")
             
             post_data = self.post_func(self,data,ax, **parameters)
+            
+            if parameters.get("legend",False):
+                ax.legend()
             setattr(plot, self.name, post_data)
 
     def update_post(self, apt_fig_obj, **kwargs):
@@ -861,6 +885,7 @@ class apt_fig:
         #then post process # it is important to do this after all the plots are made
         for post in self.post_process.values():
             post.make_post(self, **parameters)
+
             if debug.enabled and debug.level <= 0:
                 print(f"  Post processed with {post.name}")
         
@@ -888,6 +913,12 @@ class apt_fig:
         #     self.fig.subplots_adjust(hspace=self.hspace)
         
         self.made = True # marks that the figure has been made
+        
+        for plot in self.plots.values():
+            parameters = plot.parameters.copy()
+            if "legend" in parameters and parameters["legend"]:
+                # print(f"  Plot {plot.name} has legend")
+                plot.ax.legend()
         if kwargs.get('save_fig',False):
             self.fig.savefig(f"{self.plot_folder}/{kwargs.get('save_name', 'Untitled')}.png")
         return self.fig
@@ -1307,7 +1338,19 @@ class apt_fig:
         ap.logscale = logscale
 
         self._add_plot(name,ap,**kwargs)
+    def add_empty_plot(self, name, pos=None, **kwargs):
+        """
+        Adds an empty subplot to the figure with axes but no plotting function.
+        This is useful for adding post-processing functions later.
 
+        Parameters:
+        - name (str): The name of the plot.
+        - pos (tuple, optional): The position of the plot in the figure (defaulted to first empty slot).
+        - **kwargs: Additional arguments to override the default parameters.
+        """
+        data = kwargs.pop('data', self.data)  # default to figure data if not provided
+        ap = apt_plot(name, None, data, plot_function=None, empty_plot=True, **kwargs)
+        self._add_plot(name, ap, pos=pos, **kwargs)
     def add_own_plot(self, name, plot_function, **kwargs):
         '''
         Adds a custom plot to the figure
@@ -1542,6 +1585,8 @@ def colorplot(apt_plot_object,**kwargs):
     cbar_size = ap.parameters.get("cbar_size", "5%")
     cbar_pad = ap.parameters.get("cbar_pad", 0.05)
     cbar_pos = ap.parameters.get("cbar_pos", "right")
+    cbar_shrink = ap.parameters.get("cbar_shrink", 0.8)
+    cbar_no_edge_label = ap.parameters.get("cbar_no_edge_label", False)
     # print(f"cbar_pos: {cbar_pos}")
     params = match_param(kwargs, ax.pcolormesh)
     
@@ -1588,7 +1633,7 @@ def colorplot(apt_plot_object,**kwargs):
             divider = make_axes_locatable(ax)
             orientation = "horizontal" if cbar_pos in ["top", "bottom"] else "vertical"
             cax = divider.append_axes(cbar_pos, size=cbar_size, pad=cbar_pad)
-            cbar = plt.colorbar(c, cax=cax,orientation=orientation)
+            cbar = plt.colorbar(c, cax=cax,orientation=orientation,shrink=cbar_shrink)
             
             if logscale:
                 # For logscale, use a custom LogFormatter
@@ -1671,9 +1716,39 @@ def colorplot(apt_plot_object,**kwargs):
                         cbar.ax.yaxis.set_ticks_position("right")
                         cbar.ax.yaxis.set_label_position("right")
                 # cbar.ax.yaxis.set_major_formatter(formatter)
+        
 
-            # Save the cbar object to the apt_plot object if needed to be used
-            # if cbar_pos =
+            if cbar_no_edge_label:
+                if orientation == "vertical":
+                    ticks = cbar.ax.get_yticks()
+                    ticklabels = cbar.ax.get_yticklabels()
+                else:
+                    ticks = cbar.ax.get_xticks()
+                    ticklabels = cbar.ax.get_xticklabels()
+
+                # Convert tick label text to numbers (ignore empty/non-numeric)
+                tick_pairs = []
+                for val, label in zip(ticks, ticklabels):
+                    try:
+                        # Try to parse the label as a float (for log, linear, etc.)
+                        text = label.get_text().replace('$', '').replace('{', '').replace('}', '')
+                        if '^' in text:
+                            # Handle log-format like 10^3
+                            base, exp = text.split('^')
+                            base = float(base.replace('10', '').replace(' ', '')) if '10' in base else 10.0
+                            exp = float(exp)
+                            parsed_val = base ** exp
+                        else:
+                            parsed_val = float(text)
+                    except Exception:
+                        parsed_val = np.nan
+                    tick_pairs.append((parsed_val, label))
+
+                # Find the label with the largest finite value
+                finite_pairs = [(v, l) for v, l in tick_pairs if np.isfinite(v)]
+                if finite_pairs:
+                    max_val, max_label = max(finite_pairs, key=lambda x: x[0])
+                    max_label.set_visible(False)
             apt_plot_object.cbar = cbar
 
         ap.plotmade = True
