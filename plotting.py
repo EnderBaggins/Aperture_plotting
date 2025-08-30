@@ -33,15 +33,23 @@ from matplotlib.colors import LinearSegmentedColormap
 matplotlib.rc("font", family="serif")
 matplotlib.rc("text", usetex=True)
 
-cdata = {
-    "red": [(0.0, 0.0, 0.0), (0.5, 0.0, 0.0), (0.55, 1.0, 1.0), (1.0, 1.0, 1.0),],
-    "green": [(0.0, 1.0, 1.0), (0.45, 0.0, 0.0), (0.55, 0.0, 0.0), (1.0, 1.0, 1.0),],
-    "blue": [(0.0, 1.0, 1.0), (0.45, 1.0, 1.0), (0.5, 0.0, 0.0), (1.0, 0.0, 0.0),],
-}
+# cdata = { #Old colormap
+#     "red": [(0.0, 0.0, 0.0), (0.5, 0.0, 0.0), (0.55, 1.0, 1.0), (1.0, 1.0, 1.0),],
+#     "green": [(0.0, 1.0, 1.0), (0.45, 0.0, 0.0), (0.55, 0.0, 0.0), (1.0, 1.0, 1.0),],
+#     "blue": [(0.0, 1.0, 1.0), (0.45, 1.0, 1.0), (0.5, 0.0, 0.0), (1.0, 0.0, 0.0),],
+# }
 
-hot_cold_cmap = LinearSegmentedColormap("hot_and_cold", cdata, N=1024, gamma=1.0)
-if "hot_and_cold" not in matplotlib.colormaps:
-    matplotlib.colormaps.register(hot_cold_cmap)
+# hot_cold_cmap = LinearSegmentedColormap("hot_and_cold", cdata, N=1024, gamma=1.0)
+# if "hot_and_cold" not in matplotlib.colormaps:
+#     matplotlib.colormaps.register(hot_cold_cmap)
+
+import pickle
+with open("hot_cold_cmap.pkl", "rb") as f:
+    cdata = pickle.load(f)
+try:#keeps it from yelling at me when i run this twice
+    matplotlib.cm.get_cmap("hot_and_cold")
+except:
+    matplotlib.colormaps.register(cdata,name="hot_and_cold")
 
 
 # %%
@@ -76,7 +84,38 @@ This class will also store the arguments necessary for plotting the function
 This will hold a reference to it's data object
 '''
 class apt_plot:
+    """
+    This class is used to define a single subplot in an fAperture Plotting Figure
+
+    Attributes:
+    name (str): The name of the plot for accessing
+    fld_val (list of lambda functions): the defining function of the plot (e.g lambda data: data.rho)
+    data (Data object): the data object that the plot will be made from (typically inherited from apt_fig)
+    plot_function (function): the function that will be used to plot the data (e.g. colorplot)
+    parameters (dict): the default parameters of the plot (overriden by kwargs)
+    position (tuple): the position of the plot in the figure (row,col)
+    step (int): the step of the data that will be plotted
+    Other various internal attributes
+
+    Methods:
+    __init__: initializes the apt_plot object
+    update_fig: updates the figure with the current data and parameters
+    override_params: overrides the default parameters with the kwargs (without overwriting them)
+    set_step: sets the step of the data object
+
+    """
     def __init__(self,name,fld_val,data,  plot_function,**kwargs):
+        """ 
+        Initializes the apt_plot object with the given parameters
+
+        Arguments:
+        name (str): The name of the plot for accessing from apt_fig
+        fld_val (str, lambda function, or list of str/lambda functions): the defining function of the plot
+        data (Data object or list of Data objects): the data object that the plot will be made from
+        plot_function (function): the function that will be used to plot the data
+        **kwargs: the default parameters
+
+        """
         ###self.func = func
         self.plot_object = None
         self.plot_function = plot_function # e.g colorplot using pcolormesh
@@ -91,7 +130,15 @@ class apt_plot:
                        # in that case the plot_function must be able to handle multiple data objects
         self.step = kwargs.get('step',0) # does not yet work for list of steps
 
-        self._construct_plot(fld_val,**kwargs)
+        self.own_plot = kwargs.get('own_plot',False) # if the plot_function is a custom one
+        self.empty_plot = kwargs.get('empty_plot',False) # if the plot is empty (i.e no data to plot
+        if self.own_plot:
+            self._construct_own_plot(plot_function)
+        elif self.empty_plot:
+            pass
+        else:
+            self._construct_plot(fld_val,**kwargs)
+
         self.set_default_parameters()
         self.parameters.update(kwargs) #override the defaults
     
@@ -150,7 +197,9 @@ class apt_plot:
                 
             self.fld_val = fld_val_list
 
-        
+    def _construct_own_plot(self,plot_function):
+        self.plot_function = plot_function
+        # In case I need to do special things to make it work
         
     def set_default_parameters(self):
         #self.parameters['cmap'] = 'hot_and_cold'
@@ -161,6 +210,15 @@ class apt_plot:
     # the data is loaded and the step is set
     # mainly since you can have multiple plots on the same data with different steps
     def set_step(self,step=None):
+        """ 
+        Sets the step of the data object to be plotted 
+        Loads the data at the step
+
+        """
+        if self.own_plot:
+            print("Custom plot not set step")
+            return #Does not update step for custom plots
+        
         if step is None:
             # will load the data on self.step
             # this is since data can have different steps
@@ -179,6 +237,7 @@ class apt_plot:
 
     # overrides the parameters of the class object without overwriting them
     def override_params(self, **kwargs):
+        """Internal function to override the default parameters with the kwargs"""
         parameters = self.parameters.copy()
         parameters.update(kwargs)
 
@@ -191,6 +250,22 @@ class apt_plot:
         return parameters
 
     def make_plot(self, **kwargs):
+        """
+        Makes the plot with the current data and parameters
+
+        Arguments:
+        **kwargs: the parameters to override the default parameters
+        """
+        if self.own_plot:
+            self.plot_function(self.ax)
+            # this is for custom plots 
+            return
+        if self.empty_plot:
+            parameters = self.override_params(**kwargs)
+            self.set_plot_attr(**parameters)
+            # print(f"Empty plot {self.name} not made")
+            return
+        
         self.set_step(kwargs.get('step',None))
         parameters = self.override_params(**kwargs)
         
@@ -200,6 +275,16 @@ class apt_plot:
         self.set_plot_attr(**parameters)
 
     def update_plot(self, **kwargs):
+        """
+        Updates the plot with the current data and parameters
+        It updates data as opposed to fully redrawing the plot
+        """
+        if self.own_plot:
+            print("Custom plot not updated")
+            self.ax.cla()
+            self.plot_function(self.ax)
+            # TODO find a way to allow users to have their plots update with say timesteps
+            return
         #is basically make_plot but doesn't set_plot_attr
         # so probably rather superfluous but its here in case update needs to be different
         self.set_step(kwargs.get('step',None))
@@ -209,30 +294,47 @@ class apt_plot:
             raise ValueError("No plot object to update, make_fig first")
         self.plot_object = self.plot_function(self, **parameters)
         return
-        
+    
     def set_plot_attr(self, **kwargs):
+        """
+        Sets the attributes of the plot with the given parameters
+        allows for specific matplotlib ax.set_ functions to be called
+
+        possible attributes:
+        xlim, ylim, aspect, title, xlabel, ylabel, rasterized
+        easy to add more if needed
+        """
         parameters = self.parameters.copy()
         parameters.update(kwargs)
         # This requires that fld_val has the following attributes:
         # xlim, ylim, aspect, title
-        attrs = ['xlim', 'ylim', 'aspect', 'title',"xlabel",'ylabel','rasterized']
+        attrs = ['xlim', 'ylim', 'aspect', 'title',"xlabel",'ylabel','rasterized','xscale','yscale']
         for param in parameters:
             if param in attrs:
                 try:
-                    getattr(self.ax, f"set_{param}")(parameters[param])
+                    if param == "title" and hasattr(self,"cbar") and parameters.get("cbar_pos","right") == "top":
+                            self.cbar.set_label(parameters[param],fontsize=parameters.get("title_fontsize",12))
+                    else:
+                        getattr(self.ax, f"set_{param}")(parameters[param])
                 except Exception as e:
                     print(f"Could not set {param}: {e}")
 
         if parameters.get("legend",False):
-            self.ax.legend()
+            legend_loc = parameters.get("legend_loc", "best")
+            self.ax.legend(loc=legend_loc)
+        if parameters.get("hide_yaxis",False):
+            self.ax.yaxis.set_visible(False)
+        if parameters.get("hide_xaxis",False):
+            self.ax.xaxis.set_visible(False)
         
 
     
-    '''
-    Takes a new axis and copies over all important aspects of self.ax, 
-    then sets self.ax to the new axis
-    '''
+    
     def copy_ax_attr(self, new_ax):
+        '''
+        Takes a new axis and copies over all important aspects of self.ax, 
+        then sets self.ax to the new axis
+        '''
         if self.ax is None:
             return #nothing to copy
         # this is mainly so I can create a new axis with the same properties
@@ -262,6 +364,7 @@ class apt_plot:
             if (name[4:] in attrs and name.startswith('get_')):
                 try:
                     properties[name] = method()
+                    # print(f"made property {name}")
                 except Exception as e:
                     print(f"Could not execute {name}: {e}")
         #setting the properties
@@ -273,12 +376,13 @@ class apt_plot:
                 print(f"Could not set {name}: {e}")
         self.ax = new_ax
 
-    '''
-    Sets the fontsizes of the plot
-    has each type be set to default of fontsize if not specified
-    options are: label_fontsize, title_fontsize, tick_fontsize, legend_fontsize
-    '''
+    
     def set_fontsize(self, **kwargs):
+        '''
+        Sets the fontsizes of the plot
+        has each type be set to default of fontsize if not specified
+        options are: label_fontsize, title_fontsize, tick_fontsize, legend_fontsize, text_fontsize, ctick_fontsize
+        '''
         parameters = self.override_params(**kwargs)
         fontsize = parameters.get('fontsize', None)
         
@@ -287,7 +391,7 @@ class apt_plot:
         title_fontsize = parameters.get('title_fontsize', fontsize)
         tick_fontsize = parameters.get('tick_fontsize', fontsize)
         legend_fontsize = parameters.get('legend_fontsize', fontsize)
-
+        text_fontsize = parameters.get('text_fontsize', fontsize)
         ctick_fontsize = parameters.get('ctick_fontsize',tick_fontsize)
 
         if debug.enabled and debug.level <= 0:
@@ -296,6 +400,7 @@ class apt_plot:
             print(f"    Title Fontsize: {title_fontsize}")
             print(f"    Tick Fontsize: {tick_fontsize}")
             print(f"    Legend Fontsize: {legend_fontsize}")
+            print(f"    Text Fontsize: {text_fontsize}")
     
     
         #title font size
@@ -320,25 +425,29 @@ class apt_plot:
 
 
     
-    def __str__(self):
-        # A overinformative string representation
-        kwargs_str = ', '.join(f'{key}={value}' for key, value in self.kwargs.items())
-        return f"fld_quantity with function {self.func.__name__} and kwargs: {kwargs_str}"
+    # def __str__(self):
+    #     # A overinformative string representation
+    #     kwargs_str = ', '.join(f'{key}={value}' for key, value in self.kwargs.items())
+    #     return f"fld_quantity with function {self.func.__name__} and kwargs: {kwargs_str}"
     
 
 # %%
 ################################################################################
-'''
-apt_post is a class that will be used to make single post processing functions
-allowing for updating of the plot as well
-'''
-class apt_post:
-    def __init__(self, name, post_func=None, update_func=None, **kwargs):
 
+class apt_post:
+    '''
+    apt_post is a class that will be used to make single post processing functions
+    allowing for updating of the plot as well
+    (I'm considering making it more applicable with more functions to insert)
+    '''
+    def __init__(self, name, post_func=None, update_func=None, **kwargs):
+        # print(kwargs)
         self.post_func = post_func
         self.update_func = update_func
         self.post_plots = None # the list of plots to run post on
-
+        if "data" in kwargs: # if data is passed in, it will be used for the post processing
+            # print("hello")
+            self.data = kwargs.pop("data")
         self.parameters = {}
         self.name = name
 
@@ -358,18 +467,51 @@ class apt_post:
         return parameters
 
     def make_post(self,apt_fig_obj, **kwargs):
+        '''Runs a post processing function on the figure
+        The post_func needs to be of the form func(self, data, ax, **kwargs)
+        func needs to return the matplotlib object that was created or a list of such objects'''
         parameters = self.override_params(**kwargs)
         # need to pass self into these functions
         # to allow the post_func to access self parameters
-        self.post_func(self,apt_fig = apt_fig_obj, **parameters)
+        for plot in self.post_plots: # i.e the apt_plot objects listed for this function to act on
+            if hasattr(self,"data"):
+                data = self.data
+                # print("using data from post object not plot")
+            else:
+                data = plot.data
+            parameters.pop('data',None) # removes data from parameters if it exists
+            data.load(plot.step) # loads the data at the step
+            ax = plot.ax
+            ax.step= plot.step # sets the step of the axis to the plot step
+            if self.post_func is None:
+                raise ValueError(f"{self.name} has no post_func")
+            
+            post_data = self.post_func(self,data,ax, **parameters)
+            
+            if parameters.get("legend",False):
+                ax.legend()
+            setattr(plot, self.name, post_data)
 
     def update_post(self, apt_fig_obj, **kwargs):
+        ''' Removes the old post processing data
+        then recalls make_post could be implemented in make_post but eh'''
         parameters = self.override_params(**kwargs)
-        if self.update_func is None:
-            if debug.enabled and debug.level <= 0:
-                print(f"    {self.name} not updated")
-        else:
-            self.update_func(self,apt_fig_obj, **parameters)
+        for plot in self.post_plots:
+            if hasattr(plot,self.name):
+                mpl_data = getattr(plot,self.name)
+                if not isinstance(mpl_data,list):
+                    mpl_data = [mpl_data]
+                for obj in mpl_data:
+                    if obj is not None:
+                        obj.remove()
+                delattr(plot,self.name)
+                # getattr(plot,self.name).remove()
+        self.make_post(apt_fig_obj, **parameters)
+        # if self.update_func is None: # old method
+        #     if debug.enabled and debug.level <= 0:
+        #         print(f"    {self.name} not updated")
+        # else:
+        #     self.update_func(self,apt_fig_obj, **parameters)
 
     def set_fontsize(self, **kwargs):
         parameters = self.override_params(**kwargs)
@@ -380,18 +522,40 @@ class apt_post:
         title_fontsize = parameters.get('title_fontsize', fontsize)
         tick_fontsize = parameters.get('tick_fontsize', fontsize)
         legend_fontsize = parameters.get('legend_fontsize', fontsize)
+        text_fontsize = parameters.get('text_fontsize', fontsize)
 
 # %%
 ################################################################################
 aperture_figure_objects = {}
 # this is all the apt_fig objects that have been created
-'''
-apt_fig is a one dataset class object storing all the information necessary to plot a figure of subplots
-this will have children objects that will store the information necessary to plot the data of one subplot
-'''
+
 
 class apt_fig:
+    '''
+    Note: you can use sutplot_adjust parameters wspace, hspace, top, bottom, left, right as kwargs
+    Attributes:
+    unique_ident (str): a unique identifier for the figure (used to delete old figures)
+    fig (matplotlib.figure.Figure): the matplotlib figure object
+    plots (dict): a dictionary of all the subplot objects in the form {name: apt_plot_object}
+    post_process (dict): a dictionary of all the post processing functions in the form {name: apt_post_object}
+    parameters (dict): the default parameters of the figure (overriden by kwargs)
+    data (Data object): the data object that the figure will be made from
+    step (int): the default step of the data that will be plotted (subplots can override with their own steps)
+    columns/rows (int): the number of columns and rows in the figure on which plots["plot"].position is gridded
+
+    Methods:
+    __init__: initializes the apt_fig object
+    set_step: sets the step of the data object
+
+    '''
     def __init__(self,data, unique_ident= "default_identifier", **kwargs):
+        '''
+        Useful kwargs:
+        - data: the APERTURE data object to be used for the figure
+        - plot_folder: the folder to save the plots in
+        - wspace, hspace, top, bottom, left, right: the spacing of the subplots (overrides tight_layout)
+
+        '''
         global aperture_figure_objects
         #ensures uniqueness of the object
         # i.e you can recreate the same object and it overrides the old one
@@ -414,9 +578,8 @@ class apt_fig:
         # and it's subplots. even accounts for empty subplots
         self.columns = 1      # number of columns
         self.rows = 1         # number of rows
-
+        self.plot_folder = kwargs.get('plot_folder', os.getcwd())
         self.parameters.update(kwargs) #override the defaults
-    
         self.add_plot_functions = {"add_colorplot": self.add_colorplot, "add_lineout_plot": self.add_lineout_plot
                                    , "add_particle_hist": self.add_particle_hist, "add_spectrum_plot": self.add_spectrum_plot}
         
@@ -471,8 +634,8 @@ class apt_fig:
                 self.plots[plot].step = step
 
 
-    # checks if this position is taken by another subplot
     def check_position_taken(self,pos):
+        """ Internal function to check if a position is already taken by another subplot """
         for plot in self.plots.values():
             if plot.position == pos:
                 return True
@@ -481,7 +644,7 @@ class apt_fig:
     # resizes the row and column to be the larger
     # of the current size and the new position
     def resize_row_col(self,pos):
-        #updates the rows and columns to be large enough
+        """ Internal function to resize the figure to fit the new subplot """
         old_rows = self.rows
         old_columns = self.columns
         self.rows = max(self.rows,pos[0]+1)
@@ -490,6 +653,7 @@ class apt_fig:
 
     # reshapes the figure to have appropriate shape of subplots
     def set_fig_grid(self,num_rows,num_columns):
+        """ Internal function to reshape the figure to fit the subplots """
         new_fig = plt.figure()
         #copies over the old axes
         for plot in self.plots.values():
@@ -507,6 +671,20 @@ class apt_fig:
             print(f"  Reloaded figure to {num_rows}x{num_columns}, with {len(list(self.plots))+1} subplots")
     
     def _add_plot(self, name, fld_val, data=None, pos=None, plot_function = None,  **kwargs):
+        """
+        Creates an apt_plot object and adds it to the figure
+
+        Parameters:
+        name (str): the name of the plot
+        fld_val (str, lambda function, or list of str/lambda functions): the defining function of the plot
+        data (Data object, optional): the data object that the plot will be made from (defaulted to figure data)
+        pos (tuple, optional): the position of the plot in the figure (defaulted to first empty slot)
+        plot_function (function, optional): the function that will be used to plot the data
+        **kwargs: Additional arguments to override the default parameters
+
+        Notes:
+        - This is a semi-internal function try to use e.g add_colorplot instead but this is the base function
+        """
         # data is only used for creating an apt_plot object
         if data is None:# allows overriding of fig data for subplot
             data = self.data
@@ -575,6 +753,12 @@ class apt_fig:
             print(f"Added plot {name} to position {pos}")
 
     def del_plot(self, name):
+        """
+        Deletes a plot from the figure
+
+        Parameters:
+        name (str): the name of the plot to delete
+        """
         # first asserts that the plot exists
         if name not in self.plots:
             raise ValueError(f"{name} does not exist as plot to delete")
@@ -598,6 +782,9 @@ class apt_fig:
         self.set_fig_grid(self.rows,self.columns)
     
     def move_plot(self, name, pos):
+        """
+        Moves a plot to a new position in the figure
+        """
         #first asserts that the plot exists
         if name not in self.plots:
             raise ValueError(f"{name} does not exist as plot")
@@ -617,6 +804,16 @@ class apt_fig:
 
     
     def add_post(self,apt_post_obj,add_to = "all",**kwargs):
+        """
+        Adds a post processing function or list of such to the figure
+
+        Arguments:
+        apt_post_obj (apt_post object or list of apt_post objects): the post processing function to add
+        add_to (str or list of str, default="all"): the plot or plots to add the post processing function to
+        **kwargs: Additional arguments to override the default parameters
+
+        to add a second post of the same function type (i.e two seperate draw_time) merely add a name="new_name" to the kwargs
+        """
 
         if add_to == "all":
             post_plots = list(self.plots.values())
@@ -650,6 +847,7 @@ class apt_fig:
                 print(f"Added post processing function {name} to {add_to}")
 
     def del_post(self, name):
+        """Deletes a post processing function from the figure"""
         if name not in self.post_process:
             raise ValueError(f"{name} does not exist as post process")
         del self.post_process[name]
@@ -658,6 +856,11 @@ class apt_fig:
        
     # This is the main plotting function, everything beforehand is setup, this creates everything you setup
     def make_fig(self, **kwargs): 
+        """
+        make_fig is the main function that creates the figure
+        Actually calls the pertinent matplotlib methods to create the figure with all its plots
+        Typically have make_fig as the last thing you do with the figure (except maybe make_movie)
+        """
         # first if it is already made, close the figure and remake it
         # this is to stop drawing over the old figure
         if self.made:
@@ -682,18 +885,50 @@ class apt_fig:
         #then post process # it is important to do this after all the plots are made
         for post in self.post_process.values():
             post.make_post(self, **parameters)
+
             if debug.enabled and debug.level <= 0:
                 print(f"  Post processed with {post.name}")
         
         # fontsize is rough, so it has its own methods
         self.set_fontsize(**parameters)
         self.set_size()
-        self.fig.tight_layout()
+        if any(key in parameters for key in ["wspace", "hspace", "top", "bottom", "left", "right"]):
+            wspace = parameters.get('wspace', None)
+            hspace = parameters.get('hspace', None)
+            top = parameters.get('top', None)
+            bottom = parameters.get('bottom', None)
+            left = parameters.get('left', None)
+            right = parameters.get('right', None)
+            # print(f"  Adjusting figure layout with wspace={wspace}, hspace={hspace}, top={top}, bottom={bottom}, left={left}, right={right}")
+            self.fig.subplots_adjust(wspace=wspace, hspace=hspace,top=top,bottom=bottom,left=left,right=right)
+        else:
+            self.fig.tight_layout()
+        # plot_pad = parameters.get('plot_pad', 0.1)
+        # plot_w_pad = parameters.get('plot_w_pad', 0.1)
+        # plot_h_pad = parameters.get('plot_h_pad', 0.1)
+        # self.fig.tight_layout(pad=plot_pad, w_pad=plot_w_pad, h_pad=plot_h_pad)
+        # if hasattr(self,"wspace"):
+        #     self.fig.subplots_adjust(wspace=self.wspace)
+        # if hasattr(self,"hspace"):
+        #     self.fig.subplots_adjust(hspace=self.hspace)
+        
         self.made = True # marks that the figure has been made
+        
+        for plot in self.plots.values():
+            parameters = plot.parameters.copy()
+            if "legend" in parameters and parameters["legend"]:
+                # print(f"  Plot {plot.name} has legend")
+                plot.ax.legend()
+        if kwargs.get('save_fig',False):
+            self.fig.savefig(f"{self.plot_folder}/{kwargs.get('save_name', 'Untitled')}.png")
         return self.fig
     
     # uses matplotlib's set_size_inches method, just a simple wrapper to use set_size_inches with my code
     def set_size(self, xsize = None, ysize = None,**kwargs):
+        """
+        Uses the inbuilt matplotlib set_size_inches method to set the size of the figure
+        But allows for integration with the rest of the code
+        """
 
         if xsize is not None and ysize is not None:
             shape = [xsize, ysize]
@@ -705,9 +940,58 @@ class apt_fig:
         # This allows for make_fig to call set_size even without having a preset shape
         if shape is not None:
             self.fig.set_size_inches(shape,**kwargs)
-        
+    
+    def set_plot_attr(self,plots,**kwargs):
+        """
+        Sets the attributes of the plots mainly for add_own_plot in which parameters may not work
+        works with attr: xlim, ylim, title, cmap, aspect, ylabel, xlabel, vmin?, vmax?
+        """
+        if plots == "all":
+            plots = list(self.plots.values())
+        elif isinstance(plots, str):
+            plots = [self.plots[plots]]
+        else:
+            plots = [self.plots[plot] for plot in plots]
+        xlim = kwargs.get('xlim',None)
+        ylim = kwargs.get('ylim',None)
+        title = kwargs.get('title',None)
+        cmap = kwargs.get('cmap',None)
+        aspect = kwargs.get('aspect',None)
+        ylabel = kwargs.get('ylabel',None)
+        xlabel = kwargs.get('xlabel',None)
+        vmin = kwargs.get('vmin',None)
+        vmax = kwargs.get('vmax',None)
+        for plot in plots:
+            if xlim is not None:
+                plot.ax.set_xlim(xlim)
+            if ylim is not None:
+                plot.ax.set_ylim(ylim)
+            if title is not None:
+                plot.ax.set_title(title)
+            if cmap is not None:
+                plot.ax.set_cmap(cmap)
+            if aspect is not None:
+                plot.ax.set_aspect(aspect)
+            if ylabel is not None:
+                plot.ax.set_ylabel(ylabel)
+            if xlabel is not None:
+                plot.ax.set_xlabel(xlabel)
+            if vmin is not None:
+                plot.ax.set_xlim(vmin,vmax)
     #updates the fig with a new step (not remaking the figure) so hopefully quicker
     def update_fig(self, step = None,set_plot_attr=False, **kwargs):
+        """
+        Updates the figure with a new step
+
+        Parameters:
+        step (int): the step to update the figure to
+        set_plot_attr (bool, default=False): whether to update the plot attributes as well (possibly broken)
+        **kwargs: Additional arguments to override the default parameters
+
+        Notes:
+        - This will update all the subplots and post processing functions
+        - This will not remake the figure, only update the data
+        """
         parameters = self.override_params(**kwargs)
 
         if step is not None:
@@ -742,13 +1026,33 @@ class apt_fig:
         return self.fig
  
     def make_movie(self,save_name="Untitled", start=0, end=None,increment=1,  **kwargs):
+        """
+        Makes a movie of the figure with the given parameters using ffmpeg also saves all individual frames
+
+        Arguments:
+        save_name (str): the name of the movie file to save
+        start (int, optional): the starting step of the movie
+        end (int, optional): the ending step of the movie
+        increment (int, optional): the increment between each step
+        **kwargs: Additional arguments to override the default parameters
+
+        Movie Arguments:
+        fps (int, optional): the frames per second of the movie
+        pic_folder (str, optional): the folder to save the individual frames (default="movie_plots")
+        save_folder (str, optional): the folder to save the movie (default="movies")
+        """
         assert all(isinstance(var, (int, type(None))) for var in [start, end, increment]), "start, end, increment must be integers or None"
         print("make_movie does not work with different step numbers for different plots")
-        self.making_movie = True
+        # movie parameters
+        fps = kwargs.get('fps', 25)
+        pic_folder = kwargs.get('pic_folder', 'movie_plots')
+        save_folder = kwargs.get('save_folder', f'{self.plot_folder}movies')
+        #save_name as explicit argument
+        self.making_movie = True # this is to allow update_fig to do unique things in make movie (like not printing an error)
         if end is None:
             end = len(self.data.fld_steps)
         #checks if untitled already exists in movies
-        if os.path.exists(f"movies/{save_name}.mp4"):
+        if os.path.exists(f"{save_folder}/{save_name}.mp4"):
             if debug.enabled and debug.level <= 2:
                 print(f"Overwriting {save_name}.mp4")
     
@@ -758,31 +1062,34 @@ class apt_fig:
             # to set all the right things, this specific plot
             # is not saved, because it does not know which step it is
 
-        if not os.path.exists('movie_plots'):
-            os.makedirs('movie_plots') #where temp pngs go
-        if not os.path.exists('movies'):
-            os.makedirs('movies') #where movies go
+        if not os.path.exists(f'{pic_folder}'):
+            os.makedirs(f'{pic_folder}') #where temp pngs go
+        if not os.path.exists(f'{save_folder}'):
+            os.makedirs(f'{save_folder}') #where movies go
         #clears out old plots
-        if len(os.listdir("movie_plots"))>0:
-            os.system("rm movie_plots/*.png")
+        if len(os.listdir(f"{pic_folder}"))>0:
+            os.system(f"rm {pic_folder}/*.png")
 
         # saves each step as a temp png
         for step in range(start, end, increment):
             total_steps = (end-start)//increment
             save_step = step // increment - start # this is to make sure the steps are always incrementing by 1
             #prints 25% progresses
-            if save_step % (total_steps //4) == 0:
+            if total_steps > 4 and save_step % (total_steps //4) == 0:
                 progress = (save_step / total_steps) * 100
                 print(f"Progress: {progress:.2f}%")
+            #This is the place to add things if you want to change aspects of the figure at each step
+            # In the future consider making this a function that can be passed in
             self.update_fig(step, **kwargs)
-            self.fig.savefig(f"movie_plots/{save_step:05d}.png")
+            self.fig.savefig(f"{pic_folder}/{save_step:05d}.png")
 
-        os.system(f"ffmpeg -y -loglevel error -r 10 -i movie_plots/%05d.png -c:v libx264 -vf fps=25 -pix_fmt yuv420p -threads 0 movies/{save_name}.mp4")
-        print(f"Progress: Movie Finished saved to {os.getcwd()}/movies/{save_name}.mp4")
+        os.system(f"ffmpeg -y -loglevel error -r 10 -i {pic_folder}/%05d.png -c:v libx264 -vf fps={fps} -pix_fmt yuv420p -threads 0 {save_folder}/{save_name}.mp4")
+        print(f"Progress: Movie Finished saved to {os.getcwd()}/{save_folder}/{save_name}.mp4")
         del self.making_movie
 
     
     def set_fontsize(self, **kwargs):
+        """Internal function to set the fontsize of the figure using given fontsize parameters"""
         parameters = self.override_params(**kwargs)
         fontsize = parameters.get('fontsize', None)
 
@@ -794,8 +1101,20 @@ class apt_fig:
         for plot in self.plots.values():
             plot.set_fontsize(**parameters)
 
+        # adjusts all text objects added to the figure
+        text_fontsize = parameters.get('text_fontsize', fontsize)
+        for text in self.fig.texts:
+            text.set_fontsize(text_fontsize)
+
     # adds parameters to the input plots (this overwrites the currently existing parameters)
     def add_parameters(self, plots, **kwargs):
+        """
+        A method for overriding parameters after having constructed a plot
+
+        Arguments:
+        plots (str or list of str): the plot or plots to add the parameters to
+        **kwargs: a dict of arguments to overwrite the default parameters
+        """
         if plots == "all":
             plots = list(self.plots)
         elif isinstance(plots, str):
@@ -810,6 +1129,14 @@ class apt_fig:
 
     # the classic 2d colorplot of a fld_val on the space
     def add_colorplot(self, name, fld_val= None,data= None, **kwargs):
+        """
+        Adds a 2D colorplot to the figure of the given field value of the data
+        - name (str): the name of the plot
+        - fld_val: the field value to plot either a key in data or a lambda function of data
+        - data (Data object, optional): the data object that the plot will be made from (defaulted to figure data)
+        - x_grid,y_grid (optional: default data.x1,data.x2): the extent of the plot
+        - **kwargs: Additional arguments to override the default parameters
+        """
         global colorplot
 
         if data is None:
@@ -824,6 +1151,21 @@ class apt_fig:
         self._add_plot(name, ap, **kwargs)
 
     def add_lineout_plot(self, name, fld_vals,  restrictions, labels=None, second_restriction=None,data=None, **kwargs):
+        """
+        Adds a lineout plot to the figure of the given field value of the data
+
+        Arguments:
+        name (str): the name of the plot
+        fld_vals (str, lambda function, or list of str/lambda functions): the defining function of the plot
+        restrictions (tuple or list of tuples): the restrictions of the lineout (e.g ("x1",2)" is where x1 = 2)
+        labels (str or list of str, optional): the labels of the lineout (defaulted to fld_vals)
+        second_restriction (tuple or list of tuples, optional): the second restriction of the lineout (defaulted to None)
+        data (Data object, optional): the data object that the plot will be made from (defaulted to figure data)
+        **kwargs: Additional arguments to override the default parameters
+
+        Notes:
+        All lists must be the same length in order to be plotted together
+        """
         global lineout_plot # this is the lineout function for plotting a lineplot
 
 
@@ -903,6 +1245,19 @@ class apt_fig:
         
 
     def add_particle_hist(self,name, species, x_key, y_key,data=None,**kwargs):
+        """ 
+        Adds a histogram of the particle data to the figure 
+        The horizontal/vertical is determined by the x_key/y_key which are keys of the particle data
+
+        Arguments:
+        name (str): the name of the plot
+        species (str or int): the species of the particles to plot (e.g "e" or 0 for electrons)
+        x_key (str): the key of the x data
+        y_key (str): the key of the y data
+        data (Data object, optional): the data object that the plot will be made from (defaulted to figure data)
+        **kwargs: Additional arguments to override the default parameters
+
+        """
         global particle_hist
 
         if data is None:
@@ -924,6 +1279,16 @@ class apt_fig:
         self._add_plot(name, ap,**kwargs)
 
     def add_spectrum_plot(self,name, species,data=None,logscale= False, **kwargs):
+        """
+        Adds a spectrum plot to the figure of the given species of the data
+
+        Arguments:
+        name (str): the name of the plot
+        species (str or int or list of str/int): the species of the particles to plot (e.g "e" or 0 for electrons)
+        data (Data object, optional): the data object that the plot will be made from (defaulted to figure data)
+        logscale (bool, optional): whether to plot the spectrum on a log scale
+        **kwargs: Additional arguments to override the default parameters
+        """
         global spectrum_plot
 
         # first convert to list of species
@@ -973,8 +1338,38 @@ class apt_fig:
         ap.logscale = logscale
 
         self._add_plot(name,ap,**kwargs)
+    def add_empty_plot(self, name, pos=None, **kwargs):
+        """
+        Adds an empty subplot to the figure with axes but no plotting function.
+        This is useful for adding post-processing functions later.
+
+        Parameters:
+        - name (str): The name of the plot.
+        - pos (tuple, optional): The position of the plot in the figure (defaulted to first empty slot).
+        - **kwargs: Additional arguments to override the default parameters.
+        """
+        data = kwargs.pop('data', self.data)  # default to figure data if not provided
+        ap = apt_plot(name, None, data, plot_function=None, empty_plot=True, **kwargs)
+        self._add_plot(name, ap, pos=pos, **kwargs)
+    def add_own_plot(self, name, plot_function, **kwargs):
+        '''
+        Adds a custom plot to the figure
+        plot_function must be of form
+        def name(ax):
+            ## do plotting on this ax object
+            #e.g
+            x = np.linspace(0,10,100)
+            y = np.sin(x)
+            ax.plot(x,y)
+        '''
+        if not callable(plot_function):
+            raise ValueError("plot_function must be a callable function with ax as the only argument")
+        ap = apt_plot(name, None, None, plot_function = plot_function,own_plot=True, **kwargs)
+        self._add_plot(name, ap,**kwargs)
+        
 
     def print_info(self):
+        """Prints the information of the figure for easy debugging"""
         afig = self
         from IPython.display import display, Markdown
 
@@ -1025,6 +1420,7 @@ class apt_fig:
         display(Markdown("\n".join(output)))
 
     def print_options(self):
+        """Prints the possible options for the figure for ease of use"""
         afig = self
         from IPython.display import display, Markdown
 
@@ -1106,12 +1502,12 @@ class apt_fig:
 
 # %%
 ###################################################################################################
-''' 
-This function takes a dictionary of parameters and a function object
-and returns a dictionary of parameters that match the parameters of the function
 
-'''
 def match_param(parameters, obj):
+    ''' 
+    This function takes a dictionary of parameters and a function object
+    and returns a dictionary of parameters that match the parameters of the function
+    '''
     assert isinstance(parameters, dict), "parameters must be a dictionary"
     
     signature = inspect.signature(obj)
@@ -1174,41 +1570,272 @@ def run_function_safely(func, *args, **kwargs):
 #########################################################
 #########################################################
 # Here there be the main functions for plotting
-'''
-The Colorplot is a plotting function
-so it needs as input an object of the apt_plot class
-as well as the data object
-This function plots a pcolormesh plot on the axis
-and includes a colorbar nicely placed on the right
-'''
-def colorplot(apt_plot_object,**kwargs): 
+def colorplot(apt_plot_object,**kwargs):
+    '''
+    The Colorplot is a plotting function
+    so it needs as input an object of the apt_plot class
+    as well as the data object
+    This function plots a pcolormesh plot on the axis
+    and includes a colorbar nicely placed on the right
+    ''' 
     ap = apt_plot_object
     data = ap.data
     ax = ap.ax
     kwargs.setdefault("rasterized", True)
-    
+    cbar_size = ap.parameters.get("cbar_size", "5%")
+    cbar_pad = ap.parameters.get("cbar_pad", 0.05)
+    cbar_pos = ap.parameters.get("cbar_pos", "right")
+    cbar_shrink = ap.parameters.get("cbar_shrink", 0.8)
+    cbar_no_edge_label = ap.parameters.get("cbar_no_edge_label", False)
+    # print(f"cbar_pos: {cbar_pos}")
     params = match_param(kwargs, ax.pcolormesh)
-    if debug.enabled and debug.level <= 0:
-        print(f"{ap.name} is plotting colorplot with parameters {params}")
-    
     
     from warnings import filterwarnings
     filterwarnings("ignore", category=UserWarning, message="The input coordinates to pcolormesh are interpreted as cell centers.*")
-    # passing params into pcolormesh crashes, so we need to remove problematic ones with run_function_safely
+    
+    # Handle logscale parameter
+    logscale = kwargs.get('logscale', False)
+    symlogscale = kwargs.get('symlogscale', False)
+    if logscale:
+        vmin = kwargs.get("vmin", ap.fld_val(data).min())
+        vmax = kwargs.get("vmax", ap.fld_val(data).max())
+        params['norm'] = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
+        # Remove vmin/vmax from params since they're handled by LogNorm
+        params.pop('vmin', None)
+        params.pop('vmax', None)
+    elif symlogscale:
+        vmin = kwargs.get("vmin", ap.fld_val(data).min())
+        vmax = kwargs.get("vmax", ap.fld_val(data).max())
+        linthresh = kwargs.get("linthresh", 1e-3)
+        linscale = kwargs.get("linscale", 1e-3)
+        params['norm'] = matplotlib.colors.SymLogNorm(linthresh=linthresh, linscale=linscale, vmin=vmin, vmax=vmax)
+        # Remove vmin/vmax from params since they're handled by LogNorm
+        params.pop('vmin', None)
+        params.pop('vmax', None)
     
     if hasattr(ap,"plotmade"): # merely updates the data as opposed to redrawing
         if ap.plotmade:
             ap.plot_object.set_array(ap.fld_val(data).flatten())
             return ap.plot_object
     else:
-        c = run_function_safely(ax.pcolormesh, data.x1, data.x2, ap.fld_val(data), **params)
+        #implementing a variable x_extent and y_extent
+        x_grid = params.pop("x_grid", data.x1)
+        y_grid = params.pop("y_grid", data.x2)
+        if not isinstance(x_grid, np.ndarray):
+            raise ValueError("x_grid must be a numpy array, try making a linspace from xlow to xhigh and meshgrid with yextent")
+        if not isinstance(y_grid, np.ndarray):
+            raise ValueError("y_grid must be a numpy array, try making a linspace from ylow to yhigh and meshgrid with xextent")
+        
+        c = run_function_safely(ax.pcolormesh, x_grid, y_grid, ap.fld_val(data), **params)
         
         #include the colorbar
         if ap.parameters.get("include_colorbar",True):
             divider = make_axes_locatable(ax)
-            cax = divider.append_axes("right", size="5%", pad=0.05)
+            orientation = "horizontal" if cbar_pos in ["top", "bottom"] else "vertical"
+            cax = divider.append_axes(cbar_pos, size=cbar_size, pad=cbar_pad)
+            cbar = plt.colorbar(c, cax=cax,orientation=orientation,shrink=cbar_shrink)
+            
+            if logscale:
+                # For logscale, use a custom LogFormatter
+                from matplotlib.ticker import LogFormatter, LogLocator
+
+                # Create a custom formatter that formats labels as 1e-n
+                class CustomLogFormatter(LogFormatter):
+                    def __call__(self, value, tickdir=None):
+                        # return f"1e{int(np.log10(value))}"  # Format as 1e-n
+                        return f"$10^{{{int(np.log10(value))}}}$"
+
+                formatter = CustomLogFormatter(labelOnlyBase=False)
+                # Set ticks 
+                ticks = [10**i for i in range(int(np.log10(vmin)), int(np.log10(vmax)) + 1)]
+                ticks = params.get("ticks", ticks)
+                cbar.set_ticks(ticks)  # Set ticks at the specified locations
+                if orientation == "horizontal":
+                    cbar.ax.xaxis.set_major_formatter(formatter)
+                    cbar.ax.xaxis.set_major_locator(LogLocator())
+                    if cbar_pos == "top":
+                        cbar.ax.xaxis.set_ticks_position("top")
+                        cbar.ax.xaxis.set_label_position("top")
+                    else:
+                        cbar.ax.xaxis.set_ticks_position("bottom")
+                        cbar.ax.xaxis.set_label_position("bottom")
+                else:
+                    cbar.ax.yaxis.set_major_formatter(formatter)
+                    cbar.ax.yaxis.set_major_locator(LogLocator())
+                    if cbar_pos == "left":
+                        cbar.ax.yaxis.set_ticks_position("left")
+                        cbar.ax.yaxis.set_label_position("left")
+                    else:
+                        cbar.ax.yaxis.set_ticks_position("right")
+                        cbar.ax.yaxis.set_label_position("right")
+            elif symlogscale:
+                from matplotlib.ticker import SymmetricalLogLocator, FormatStrFormatter
+                linthresh = kwargs.get("linthresh", 1e-3)
+                linscale = kwargs.get("linscale", 1e-3)
+                # Set locator and formatter for symlog
+                locator = SymmetricalLogLocator(linthresh=linthresh, base=10)
+                formatter = FormatStrFormatter("%.1g")
+                if orientation == "horizontal":
+                    cbar.ax.xaxis.set_major_locator(locator)
+                    cbar.ax.xaxis.set_major_formatter(formatter)
+                    if cbar_pos == "top":
+                        cbar.ax.xaxis.set_ticks_position("top")
+                        cbar.ax.xaxis.set_label_position("top")
+                    else:
+                        cbar.ax.xaxis.set_ticks_position("bottom")
+                        cbar.ax.xaxis.set_label_position("bottom")
+                else:
+                    cbar.ax.yaxis.set_major_locator(locator)
+                    cbar.ax.yaxis.set_major_formatter(formatter)
+                    if cbar_pos == "left":
+                        cbar.ax.yaxis.set_ticks_position("left")
+                        cbar.ax.yaxis.set_label_position("left")
+                    else:
+                        cbar.ax.yaxis.set_ticks_position("right")
+                        cbar.ax.yaxis.set_label_position("right")
+            else:
+                # Keep existing scientific notation for linear scale
+                from matplotlib.ticker import ScalarFormatter
+                formatter = ScalarFormatter(useMathText=True)
+                formatter.set_powerlimits((0, 0))
+                if orientation == "horizontal":
+                    cbar.ax.xaxis.set_major_formatter(formatter)
+                    if cbar_pos == "top":
+                        cbar.ax.xaxis.set_ticks_position("top")
+                        cbar.ax.xaxis.set_label_position("top")
+                    else:
+                        cbar.ax.xaxis.set_ticks_position("bottom")
+                        cbar.ax.xaxis.set_label_position("bottom")
+
+                else:
+                    cbar.ax.yaxis.set_major_formatter(formatter)
+                    if cbar_pos == "left":
+                        cbar.ax.yaxis.set_ticks_position("left")
+                        cbar.ax.yaxis.set_label_position("left")
+                    else:
+                        cbar.ax.yaxis.set_ticks_position("right")
+                        cbar.ax.yaxis.set_label_position("right")
+                # cbar.ax.yaxis.set_major_formatter(formatter)
+        
+
+            if cbar_no_edge_label:
+                if orientation == "vertical":
+                    ticks = cbar.ax.get_yticks()
+                    ticklabels = cbar.ax.get_yticklabels()
+                else:
+                    ticks = cbar.ax.get_xticks()
+                    ticklabels = cbar.ax.get_xticklabels()
+
+                # Convert tick label text to numbers (ignore empty/non-numeric)
+                tick_pairs = []
+                for val, label in zip(ticks, ticklabels):
+                    try:
+                        # Try to parse the label as a float (for log, linear, etc.)
+                        text = label.get_text().replace('$', '').replace('{', '').replace('}', '')
+                        if '^' in text:
+                            # Handle log-format like 10^3
+                            base, exp = text.split('^')
+                            base = float(base.replace('10', '').replace(' ', '')) if '10' in base else 10.0
+                            exp = float(exp)
+                            parsed_val = base ** exp
+                        else:
+                            parsed_val = float(text)
+                    except Exception:
+                        parsed_val = np.nan
+                    tick_pairs.append((parsed_val, label))
+
+                # Find the label with the largest finite value
+                finite_pairs = [(v, l) for v, l in tick_pairs if np.isfinite(v)]
+                if finite_pairs:
+                    max_val, max_label = max(finite_pairs, key=lambda x: x[0])
+                    max_label.set_visible(False)
+            apt_plot_object.cbar = cbar
+
+        ap.plotmade = True
+        return c
+def colorplot_old(apt_plot_object,**kwargs):
+    '''
+    The Colorplot is a plotting function
+    so it needs as input an object of the apt_plot class
+    as well as the data object
+    This function plots a pcolormesh plot on the axis
+    and includes a colorbar nicely placed on the right
+    ''' 
+    ap = apt_plot_object
+    data = ap.data
+    ax = ap.ax
+    kwargs.setdefault("rasterized", True)
+    cbar_size = ap.parameters.get("cbar_size", "5%")
+    cbar_pad = ap.parameters.get("cbar_pad", 0.05)
+    cbar_pos = ap.parameters.get("cbar_pos", "right")
+    params = match_param(kwargs, ax.pcolormesh)
+    if debug.enabled and debug.level <= 0:
+        print(f"{ap.name} is plotting colorplot with parameters {params}")
+    
+    from warnings import filterwarnings
+    filterwarnings("ignore", category=UserWarning, message="The input coordinates to pcolormesh are interpreted as cell centers.*")
+    
+    # Handle logscale parameter
+    logscale = kwargs.get('logscale', False)
+    if logscale:
+        vmin = kwargs.get("vmin", ap.fld_val(data).min())
+        vmax = kwargs.get("vmax", ap.fld_val(data).max())
+        params['norm'] = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax)
+        # Remove vmin/vmax from params since they're handled by LogNorm
+        params.pop('vmin', None)
+        params.pop('vmax', None)
+    
+    if hasattr(ap,"plotmade"): # merely updates the data as opposed to redrawing
+        if ap.plotmade:
+            ap.plot_object.set_array(ap.fld_val(data).flatten())
+            return ap.plot_object
+    else:
+        #implementing a variable x_extent and y_extent
+        x_grid = params.pop("x_grid", data.x1)
+        y_grid = params.pop("y_grid", data.x2)
+        if not isinstance(x_grid, np.ndarray):
+            raise ValueError("x_grid must be a numpy array, try making a linspace from xlow to xhigh and meshgrid with yextent")
+        if not isinstance(y_grid, np.ndarray):
+            raise ValueError("y_grid must be a numpy array, try making a linspace from ylow to yhigh and meshgrid with xextent")
+        
+        c = run_function_safely(ax.pcolormesh, x_grid, y_grid, ap.fld_val(data), **params)
+        
+        #include the colorbar
+        if ap.parameters.get("include_colorbar",True):
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes(cbar_pos, size=cbar_size, pad=cbar_pad)
             cbar = plt.colorbar(c, cax=cax)
-            #saves the cbar object to the apt_plot object if needed to be used
+
+            if logscale:
+                # For logscale, use a custom LogFormatter
+                from matplotlib.ticker import LogFormatter, LogLocator
+
+                # Create a custom formatter that formats labels as 1e-n
+                class CustomLogFormatter(LogFormatter):
+                    def __call__(self, value, tickdir=None):
+                        # return f"1e{int(np.log10(value))}"  # Format as 1e-n
+                        return f"$10^{{{int(np.log10(value))}}}$"
+
+                formatter = CustomLogFormatter(labelOnlyBase=False)
+                cbar.ax.yaxis.set_major_formatter(formatter)
+                cbar.ax.yaxis.set_major_locator(LogLocator())
+
+                # Set ticks at the top and bottom
+                ticks = [10**i for i in range(int(np.log10(vmin)), int(np.log10(vmax)) + 1)]
+                
+                ticks = params.get("ticks", ticks)
+                cbar.set_ticks(ticks)  # Set ticks at the specified locations
+                cbar.ax.yaxis.set_tick_params(labelsize=10)  # Adjust label size if needed
+                # Add ticks to the top of the colorbar
+                cbar.ax.yaxis.set_ticks_position('both')  # Show ticks on both sides
+            else:
+                # Keep existing scientific notation for linear scale
+                from matplotlib.ticker import ScalarFormatter
+                formatter = ScalarFormatter(useMathText=True)
+                formatter.set_powerlimits((0, 0))
+                cbar.ax.yaxis.set_major_formatter(formatter)
+
+            # Save the cbar object to the apt_plot object if needed to be used
             apt_plot_object.cbar = cbar
 
         ap.plotmade = True
@@ -1322,7 +1949,7 @@ def lineout_plot(apt_plot_object,**kwargs):
             
             #line, = run_function_safely(ax.plot,xdata[i], ydata[i],label=label, **params)
             line, = ax.plot(xdata[i], ydata[i],label=label)
-            print("line,",i, type(line))
+            # print("line,",i, type(line))
             plot_object.append(line)
         
         ap.linemade = True
@@ -1461,67 +2088,163 @@ apt_post_types = {}
 #########################################################################
 # Here there be the axis functions
 
-'''
-draw_field_lines is a generator for post processing class object
 
-its func requires apt_fig as input
-This stores the contour lines in each plot object
-
-the update is optional and also requires apt_fig
-this deletes the old contour lines and recalls func
-
-
-Current problems is it required Bp inside the config of the dataset
-'''
 def draw_field_lines1(name='draw_field_lines1',**kwargs):
-    
-    def func(self,apt_fig,**kwargs):
-        data = apt_fig.data # will need to change to be plot.data instead as each plot has its own data reference
+    '''
+    draw_field_lines is a generator for post processing class object
+    This stores the contour lines in each plot object
+
+    Current problems is it required Bp inside the config of the dataset
+    '''
+    def func(self,data,ax,**kwargs):
         Bmax = kwargs.get('Bp',data.conf["Bp"])
         flux    = np.cumsum(data.B1 * data._rv * data._rv * np.sin(data._thetav) * data._dtheta, axis=0)
         clevels = np.linspace(0.0, np.sqrt(Bmax), 10)**2
         #clevels = np.linspace(0.0, Bmax, 10)
+        contours = ax.contour(data.x1, data.x2, flux, clevels, colors='green', linewidths=1)
+        return contours
+    return apt_post(name, func, **kwargs)
+apt_post_types['draw_field_lines1'] = draw_field_lines1
+
+def convert_to_index(ax_index,value,data):
+        # takes an x1,x2 (x3) value and converts it into an index on the grid
+        lower = data.conf["lower"][ax_index]
+        N = data.conf["N"][ax_index]
+        downsample = data.conf["downsample"]
+        size = data.conf["size"][ax_index]
+
+        index = (value-lower)*N/(size*downsample)
+        return int(index) # as its an index
+    
+def draw_field_line(name='draw_field_line',**kwargs):
+    '''
+    draw_field_line is a generator for post processing class object
+
+    its func requires apt_fig as input
+    This stores the contour lines in each plot object
+
+    the update is optional and also requires apt_fig
+    this deletes the old contour lines and recalls func
+
+    '''
+    def func(self,data,ax,**kwargs):
+        # data = apt_fig.data # will need to change to be plot.data instead as each plot has its own data reference
+        # Bmax = kwargs.get('Bp',data.conf["Bp"])
+        th_foot = kwargs.get('th_foot',np.pi/4)
+        r_max = kwargs.get('r_max',None)
+        if not isinstance(th_foot, list):
+            th_foot = [th_foot]
+        #Next overrides th_foot if r_max is given
+        if r_max is not None and not isinstance(r_max, list):
+            r_max = [r_max]
+        if r_max is not None:
+            th_foot = []
+            for r in r_max:
+                th_foot.append(np.arcsin(np.sqrt(1/r)))
+            # th_foot = np.arcsin(np.sqrt(1/r_max))
         
-        for plot in self.post_plots:
-            if data != plot.data:
-                print(f"{plot}.data is not the same as afig's data, will plot but flux is from afig's data not plot's data")
-            contours = plot.ax.contour(data.x1, data.x2, flux, clevels, colors='green', linewidths=1)
-            setattr(plot, name, contours)
+        flux    = np.cumsum(data.B1 * data._rv * data._rv * np.sin(data._thetav) * data._dtheta, axis=0)
+        #flux = data.flux
+        # Find the index corresponding to the footpoint
+        r = np.log(1) # we always start on the surface
+        r_foot_index = convert_to_index(0,r,data)
+        footpoint_fluxes = []
+        for th in th_foot:
+            theta_foot_index = convert_to_index(1,th,data)
+        #Then we compute the flux at that point
+            flux_foot = flux[theta_foot_index,r_foot_index] # yes these seem flipped but its the way it is
+            footpoint_fluxes.append(flux_foot)
+
+        color = kwargs.get('color', 'green')
+        linewidth = kwargs.get('linewidth', 1)
+        # for plot in self.post_plots:
+        #     if data != plot.data:
+        #         print(f"{plot}.data is not the same as afig's data, will plot but flux is from afig's data not plot's data")
+        contours = ax.contour(data.x1, data.x2, flux, np.sort(footpoint_fluxes), colors=color, linewidths=linewidth)
+            # setattr(plot, name, contours)
             # to access for update later
+        return contours
+    return apt_post(name, func, **kwargs)
+apt_post_types['draw_field_line'] = draw_field_line
+        
+
+# %%
+def draw_time_fig(name='draw_time_fig',**kwargs):
+    def func(self,apt_fig,**kwargs):
+        print("Draw_time_fig is probably broken with new method of post_proc")
+        # time_units is a string of the units of time
+        time_units = kwargs.get('time_units', '')
+        text_fontsize = kwargs.get('text_fontsize', None)
+        color = kwargs.get('color', 'black')
+        text_x = kwargs.get('text_x', 0.75)
+        text_y = kwargs.get('text_y', 0.75)
+        text_object = apt_fig.fig.text(text_x, text_y, f"t = {apt_fig.data.time:.2f} {time_units}"
+                         ,transform=apt_fig.fig.transFigure
+                         ,fontsize=text_fontsize
+                         ,color=color)
+        
+        apt_fig.time_text = text_object
         return None
     
     def update_func(self,apt_fig,**kwargs):
-        
-        for plot in self.post_plots:
-            if hasattr(plot, name):
-                for c in getattr(plot, name).collections:
-                    c.remove()
+        if hasattr(apt_fig, 'time_text') and apt_fig.time_text in apt_fig.fig.texts:
+            apt_fig.time_text.remove()
         func(self,apt_fig,**kwargs)
-            
-        if debug.enabled and debug.level <= 1:
-            print(f"Updated {name} at timestep {apt_fig.step}")
         return None
     
     return apt_post(name, func, update_func, **kwargs)
-apt_post_types['draw_field_lines1'] = draw_field_lines1
-        
-    
+apt_post_types['draw_time_fig'] = draw_time_fig
 
+def draw_time(name='draw_time',**kwargs):
+    '''
+    args: text_x, text_y, text_fontsize, color,time_units'''
+    def func(self,data,ax,**kwargs):
+        # time_units is a string of the units of time
+        time_units = kwargs.get('time_units', '')
+        text_fontsize = kwargs.get('text_fontsize', None)
+        color = kwargs.get('color', 'black')
+        text_x = kwargs.get('text_x', 0.75)
+        text_y = kwargs.get('text_y', 0.75)
+        # text_objects = []
+        # for plot in self.post_plots:
+        time = data.time
+        text_object = ax.text(text_x, text_y, f"t = {time:.2f} {time_units}"
+                    ,transform=ax.transAxes
+                        ,fontsize=text_fontsize
+                        ,color=color)
+        # text_objects.append(text_object)
+        # text_object = apt_fig.fig.text(text_x, text_y, f"t = {apt_fig.data.time:.2f} {time_units}"
+        #                  ,transform=apt_fig.fig.transFigure
+        #                  ,fontsize=text_fontsize
+        #                  ,color=color)
+        
+        # apt_fig.time_text = text_object
+        # self.time_texts = text_objects
+        return text_object
+    return apt_post(name, func, **kwargs)
+apt_post_types['draw_time'] = draw_time
 # %%
 #########################################################################
 
-'''
-draw_NS is a generator for post_processing class object
-so it requires the apt_fig object as input
 
-This function will merely draw the neutron star on every plot
-'''
 def draw_NS(name='draw_NS',**kwargs):
-    def func(self,**kwargs): 
-        r = kwargs.get("Radius",1)
-        for plot in self.post_plots:
-            plot.ax.add_patch(plt.Circle((0,0),r,fill=True, color="black", alpha=0.5))
+    '''
+    draw_NS is a generator for post_processing class object
+    so it requires the apt_fig object as input
 
+    This function will merely draw the neutron star on every plot
+
+    useful kwargs:
+    Radius: the radius of the neutron star (default 1)
+    color: the color of the neutron star (default black)
+    transparency: the transparency of the neutron star (default 0.5) (i.e with black it makes gray)
+    '''
+    def func(self,data,ax,**kwargs): 
+        r = kwargs.get("Radius",1)
+        color = kwargs.get("color","black")
+        transparency = kwargs.get("transparancy",0.5)
+        star =ax.add_patch(plt.Circle((0,0),r,fill=True, color=color, alpha=transparency))
+        return star
     return apt_post(name, func, **kwargs)
 apt_post_types['draw_NS'] = draw_NS
 

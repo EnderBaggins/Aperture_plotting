@@ -7,7 +7,7 @@ from pathlib import Path
 import os
 import re
 
-extra_fld_keys = ["B", "J", "flux"]
+# extra_fld_keys = ["B", "J", "flux"]
 
 def flag_to_species(flag):
   return flag >> (32 - 4);
@@ -18,7 +18,9 @@ class Data:
 
   def __init__(self, path):
     self._path = path
-
+    self._fld_keys = []
+    self._ptc_keys = []
+    self.extra_fld_keys = ["B", "J", "flux"]
     self.reload()
 
   def __dir__(self):
@@ -31,11 +33,11 @@ class Data:
   def __getattr__(self, key):
     if key not in self.__dict__:
       if key in self._fld_keys:
-        self.__load_fld_quantity(key)
+        self._load_fld_quantity(key)
       elif key in self._ptc_keys:
-        self.__load_ptc_quantity(key)
+        self._load_ptc_quantity(key)
       elif key in self._mesh_keys:
-        self.__load_mesh_quantity(key)
+        self._load_mesh_quantity(key)
       elif key == "keys":
         self.__dict__[key] = self._fld_keys + self._ptc_keys + self._mesh_keys
       elif key == "conf":
@@ -44,7 +46,7 @@ class Data:
         return None
     return self.__dict__[key]
 
-  def __load_fld_quantity(self, key):
+  def _load_fld_quantity(self, key):
     path = os.path.join(self._path, f"fld.{self._current_fld_step:05d}.h5")
     if key == "flux" and key not in self._original_fld_keys:
       self.__dict__[key] = np.cumsum(self.B1,axis=0)*self.delta[1] - np.cumsum(self.B2,axis=1)*self.delta[0]
@@ -57,13 +59,13 @@ class Data:
       self.__dict__[key] = data[key][()]
       data.close()
 
-  def __load_ptc_quantity(self, key):
+  def _load_ptc_quantity(self, key):
     path = os.path.join(self._path, f"ptc.{self._current_ptc_step:05d}.h5")
     data = h5py.File(path, "r")
     self.__dict__[key] = data[key][()]
     data.close()
 
-  def __load_mesh_quantity(self, key):
+  def _load_mesh_quantity(self, key):
     data = h5py.File(self._meshfile, "r")
     self.__dict__[key] = data[key][()]
     data.close()
@@ -75,48 +77,97 @@ class Data:
   def reload(self, print_keys=False):
     # reload configuration file
     self._conf = self.load_conf(os.path.join(self._path, "config.toml"))
-    self.__load_mesh()
-
-    num_re = re.compile(r"\d+")
+    self._load_mesh()
+    self.load_fld_keys(0,print_keys)
+    self.load_ptc_keys(0,print_keys)
+    # subsequent commented out lines are moved to load_fld_keys and load_ptc_keys
+    # num_re = re.compile(r"\d+")
     # generate a list of output steps for fields
+    # self._fld_keys = []
+    # self.fld_steps = [
+    #   int(num_re.findall(f.stem)[0]) for f in Path(self._path).glob("fld.*.h5")
+    # ]
+    # if len(self.fld_steps) > 0:
+    #   self.fld_steps.sort()
+    #   self._current_fld_step = self.fld_steps[0]
+    #   f_fld = h5py.File(
+    #     os.path.join(self._path, f"fld.{self._current_fld_step:05d}.h5"),
+    #     "r",
+    #   )
+    #   self._original_fld_keys = list(f_fld.keys())
+    #   self._fld_keys = list(f_fld.keys())
+    #   for k in extra_fld_keys:
+    #     if k not in self._original_fld_keys:
+    #       self._fld_keys.append(k)
+    #   if print_keys:
+    #     print("fld keys are:", self._fld_keys)
+    #   f_fld.close()
+
+    # generate a list of output steps for particles
+    # self._ptc_keys = []
+    # self.ptc_steps = [
+    #   int(num_re.findall(f.stem)[0]) for f in Path(self._path).glob("ptc.*.h5")
+    # ]
+    # if len(self.ptc_steps) > 0:
+    #   self.ptc_steps.sort()
+    #   self._current_ptc_step = self.ptc_steps[-1]
+    #   f_ptc = h5py.File(
+    #     os.path.join(self._path, f"ptc.{self._current_ptc_step:05d}.h5"),
+    #     "r",
+    #   )
+    #   self._ptc_keys = list(f_ptc.keys())
+    #   if print_keys:
+    #     print("ptc keys are:", self._ptc_keys)
+    #   f_ptc.close()
+  
+  def load_ptc_keys(self,step,print_keys=False):
+    '''
+    Load the keys of the particle file at a given step
+    '''
+    num_re = re.compile(r"\d+")
+
+    self._ptc_keys = []
+    self.ptc_steps = [
+      int(num_re.findall(f.stem)[0]) for f in Path(self._path).glob("ptc.*.h5")
+    ] # Looks through the directory and finds all the ptc files
+    if len(self.ptc_steps) > 0:
+      self.ptc_steps.sort()
+      self._current_ptc_step = self.ptc_steps[step]
+      f_ptc = h5py.File(
+        os.path.join(self._path, f"ptc.{self._current_ptc_step:05d}.h5"),
+        "r",
+      )#Finds existing keys in the file at the given step
+      self._ptc_keys = list(f_ptc.keys())
+      if print_keys:
+        print("ptc keys are:", self._ptc_keys)
+      f_ptc.close()
+  
+  def load_fld_keys(self,step,print_keys=False):
+    '''
+    Load the keys of the field file at a given step
+    '''
+    num_re = re.compile(r"\d+")
     self._fld_keys = []
     self.fld_steps = [
       int(num_re.findall(f.stem)[0]) for f in Path(self._path).glob("fld.*.h5")
     ]
     if len(self.fld_steps) > 0:
       self.fld_steps.sort()
-      self._current_fld_step = self.fld_steps[0]
+      self._current_fld_step = self.fld_steps[step]
       f_fld = h5py.File(
         os.path.join(self._path, f"fld.{self._current_fld_step:05d}.h5"),
         "r",
       )
       self._original_fld_keys = list(f_fld.keys())
       self._fld_keys = list(f_fld.keys())
-      for k in extra_fld_keys:
+      for k in self.extra_fld_keys:
         if k not in self._original_fld_keys:
           self._fld_keys.append(k)
       if print_keys:
         print("fld keys are:", self._fld_keys)
       f_fld.close()
-
-    # generate a list of output steps for particles
-    self._ptc_keys = []
-    self.ptc_steps = [
-      int(num_re.findall(f.stem)[0]) for f in Path(self._path).glob("ptc.*.h5")
-    ]
-    if len(self.ptc_steps) > 0:
-      self.ptc_steps.sort()
-      self._current_ptc_step = self.ptc_steps[-1]
-      f_ptc = h5py.File(
-        os.path.join(self._path, f"ptc.{self._current_ptc_step:05d}.h5"),
-        "r",
-      )
-      self._ptc_keys = list(f_ptc.keys())
-      if print_keys:
-        print("ptc keys are:", self._ptc_keys)
-      f_ptc.close()
   
-  def __load_mesh(self):
+  def _load_mesh(self):
     # print("Base")
     # load mesh file
     if self._mesh_loaded:
@@ -143,6 +194,7 @@ class Data:
       if k in self.__dict__:
         self.__dict__.pop(k, None)
         # self._mesh_loaded = False
+    self.load_fld_keys(step)
 
   def load_ptc(self, step):
     if not step in self.ptc_steps:
@@ -152,6 +204,7 @@ class Data:
     for k in self._ptc_keys:
       if k in self.__dict__:
         self.__dict__.pop(k, None)
+    self.load_ptc_keys(step)
 
   def load_conf(self, path):
     return toml.load(path)
@@ -161,8 +214,12 @@ class Data:
       result = np.zeros((len(self.ptc_steps), len(ptc_id)))
       for n in self.ptc_steps:
         self.load_ptc(n)
-        for i in ptc_id:
-          result[n, i] = self.__getattr__(key)[self.tracked_ptc_id == ptc_id[i]]
+        for i, id in enumerate(ptc_id):
+          res = self.__getattr__(key)[self.tracked_ptc_id == id]
+          if len(res) > 0:# because result of this is a list, nan if more than one ptc with same id
+            result[n, i] = res[0]
+          else:
+            result[n, i] = np.nan
     else:
       result = np.zeros(len(self.ptc_steps))
       for n in self.ptc_steps:
@@ -171,15 +228,19 @@ class Data:
     return result
 
   def time_series_ptc(self, key):
-    result = np.zeros(len(self.ptc_steps))
+    #result = np.zeros(len(self.ptc_steps))
+    result = []
     for n in self.ptc_steps:
       self.load_ptc(n)
-      result[n] = self.__getattr__(key)
+      # result[n] = self.__getattr__(key)
+      result.append(self.__getattr__(key))
     return result
     
   def time_series_fld(self, key):
-    result = np.zeros(len(self.fld_steps))
+    #result = np.zeros(len(self.fld_steps))
+    result = []
     for n in self.fld_steps:
       self.load_fld(n)
-      result[n] = self.__getattr__(key)
+      #result[n] = self.__getattr__(key)
+      result.append(self.__getattr__(key))
     return result

@@ -1,4 +1,5 @@
 *.ipynb
+!magnetar.ipynb
 *.pyc
 __pycache__
 *.png
@@ -9,3 +10,4 @@ movie_plots
 notes
 venv
 *.pdf
+*.csv
