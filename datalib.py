@@ -7,7 +7,7 @@ from pathlib import Path
 import os
 import re
 
-extra_fld_keys = ["B", "J", "flux"]
+# extra_fld_keys = ["B", "J", "flux"]
 
 def flag_to_species(flag):
   return flag >> (32 - 4);
@@ -18,7 +18,9 @@ class Data:
 
   def __init__(self, path):
     self._path = path
-
+    self._fld_keys = []
+    self._ptc_keys = []
+    self.extra_fld_keys = ["B", "J", "flux"]
     self.reload()
 
   def __dir__(self):
@@ -31,11 +33,11 @@ class Data:
   def __getattr__(self, key):
     if key not in self.__dict__:
       if key in self._fld_keys:
-        self.__load_fld_quantity(key)
+        self._load_fld_quantity(key)
       elif key in self._ptc_keys:
-        self.__load_ptc_quantity(key)
+        self._load_ptc_quantity(key)
       elif key in self._mesh_keys:
-        self.__load_mesh_quantity(key)
+        self._load_mesh_quantity(key)
       elif key == "keys":
         self.__dict__[key] = self._fld_keys + self._ptc_keys + self._mesh_keys
       elif key == "conf":
@@ -44,7 +46,7 @@ class Data:
         return None
     return self.__dict__[key]
 
-  def __load_fld_quantity(self, key):
+  def _load_fld_quantity(self, key):
     path = os.path.join(self._path, f"fld.{self._current_fld_step:05d}.h5")
     if key == "flux" and key not in self._original_fld_keys:
       self.__dict__[key] = np.cumsum(self.B1,axis=0)*self.delta[1] - np.cumsum(self.B2,axis=1)*self.delta[0]
@@ -57,13 +59,13 @@ class Data:
       self.__dict__[key] = data[key][()]
       data.close()
 
-  def __load_ptc_quantity(self, key):
+  def _load_ptc_quantity(self, key):
     path = os.path.join(self._path, f"ptc.{self._current_ptc_step:05d}.h5")
     data = h5py.File(path, "r")
     self.__dict__[key] = data[key][()]
     data.close()
 
-  def __load_mesh_quantity(self, key):
+  def _load_mesh_quantity(self, key):
     data = h5py.File(self._meshfile, "r")
     self.__dict__[key] = data[key][()]
     data.close()
@@ -75,7 +77,7 @@ class Data:
   def reload(self, print_keys=False):
     # reload configuration file
     self._conf = self.load_conf(os.path.join(self._path, "config.toml"))
-    self.__load_mesh()
+    self._load_mesh()
     self.load_fld_keys(0,print_keys)
     self.load_ptc_keys(0,print_keys)
     # subsequent commented out lines are moved to load_fld_keys and load_ptc_keys
@@ -158,14 +160,14 @@ class Data:
       )
       self._original_fld_keys = list(f_fld.keys())
       self._fld_keys = list(f_fld.keys())
-      for k in extra_fld_keys:
+      for k in self.extra_fld_keys:
         if k not in self._original_fld_keys:
           self._fld_keys.append(k)
       if print_keys:
         print("fld keys are:", self._fld_keys)
       f_fld.close()
   
-  def __load_mesh(self):
+  def _load_mesh(self):
     # print("Base")
     # load mesh file
     if self._mesh_loaded:
