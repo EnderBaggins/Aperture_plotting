@@ -182,6 +182,35 @@ class DataKerrSchild(DataSph):
       self.__dict__[key] = alpha(self._rv, self._thetav, self.a) * self.Bd3 - gmsqrt(self._rv, self._thetav, self.a) * beta1u(self._rv, self._thetav, self.a) * self.E2
     elif key == "sigma": # this is the cold sigma
       self.__dict__[key] = (self.B1 * self.Bd1 + self.B2 * self.Bd2 + self.B3 * self.Bd3) / (self.Rho_p - self.Rho_e + 1e-6)
+    elif key == "flux_upper":
+      self.__dict__[key] = compute_fluid_4flux_upper(self)
+    elif key == "flux_lower":
+      self.__dict__[key] = np.stack([self.num_e + self.num_p, self.flux_e1 + self.flux_p1,
+                                     self.flux_e2 + self.flux_p2, self.flux_e3 + self.flux_p3], axis=-1)
+    elif key == "n_proper":
+      self.__dict__[key] = np.sqrt(np.abs(inner_product_4d_covariant(self.flux_lower, self.flux_lower, self._rv, self._thetav, self.a)))
+    elif key == "fluid_u_upper":
+      self.__dict__[key] = self.flux_upper / self.n_proper[..., np.newaxis]
+    elif key == "fluid_u_lower":
+      self.__dict__[key] = self.flux_lower / self.n_proper[..., np.newaxis]
+    elif key == "fluid_b_upper":
+      # compute b vector in the fluid rest frame
+      B = np.stack([np.zeros_like(data.B1), data.B1, data.B2, data.B3], axis=-1)
+      E = np.stack([np.zeros_like(data.Ed1), data.Ed1, data.Ed2, data.Ed3], axis=-1)
+      u_lower = self.fluid_u_lower
+      # B = np.array([0.0, data.B1[Nth, Nr], data.B2[Nth, Nr], data.B3[Nth, Nr]])
+      # E = np.array([0.0, data.Ed1[Nth, Nr], data.Ed2[Nth, Nr], data.Ed3[Nth, Nr]])
+      alpha_val = alpha(self._rv, self._thetav, self.a)
+      sqrt_gm = gmsqrt(self._rv, self._thetav, self.a)
+      b0 = (u_lower[...,1] * B[...,1] + u_lower[...,2] * B[...,2] + u_lower[...,3] * B[...,3]) / alpha_val
+      b1 = -u_lower[...,0] * B[...,1] / alpha_val - (u_lower[...,2] * E[...,3] - u_lower[...,3] * E[...,2]) / alpha_val / sqrt_gm
+      b2 = -u_lower[...,0] * B[...,2] / alpha_val - (u_lower[...,3] * E[...,1] - u_lower[...,1] * E[...,3]) / alpha_val / sqrt_gm
+      b3 = -u_lower[...,0] * B[...,3] / alpha_val - (u_lower[...,1] * E[...,2] - u_lower[...,2] * E[...,1]) / alpha_val / sqrt_gm
+      b_upper = np.array([b0, b1, b2, b3])
+      bnorm = np.sqrt(inner_product_4d_covariant(b_upper, b_upper, self._rv, self._thetav, self.a))
+      self.__dict__[key] = np.stack([b0, b1, b2, b3], axis=-1) / bnorm
+
+    # elif key
     # elif key == "J":
     #   self._J = np.sqrt(self.J1 * self.J1 + self.J2 * self.J2 + self.J3 * self.J3)
     # elif key == "EdotB":
@@ -241,3 +270,49 @@ def compute_fluid_proper_density(data):
     n_e = np.sqrt(np.abs(flux_upper[:,:,0]*data.num_e + flux_upper[:,:,1]*data.flux_e1 + flux_upper[:,:,2]*data.flux_e2 + flux_upper[:,:,3]*data.flux_e3))
     n_p = np.sqrt(np.abs(flux_upper[:,:,0]*data.num_p + flux_upper[:,:,1]*data.flux_p1 + flux_upper[:,:,2]*data.flux_p2 + flux_upper[:,:,3]*data.flux_p3))
     return n_e + n_p
+
+# Inner product of two 4d contravariant vectors
+def inner_product_4d_contravariant(v1, v2, r, th, a):
+    g00 = gd00(r, th, a)
+    g01 = gd01(r, th, a)
+    g03 = gd03(r, th, a)
+    g11 = gd11(r, th, a)
+    g13 = gd13(r, th, a)
+    g22 = gd22(r, th, a)
+    g33 = gd33(r, th, a)
+    return (g00 * v1[...,0] * v2[...,0] +
+            2 * g01 * v1[...,0] * v2[...,1] +
+            2 * g03 * v1[...,0] * v2[...,3] +
+            g11 * v1[...,1] * v2[...,1] +
+            2 * g13 * v1[...,1] * v2[...,3] +
+            g22 * v1[...,2] * v2[...,2] +
+            g33 * v1[...,3] * v2[...,3])
+
+# Inner product of two 4d covariant vectors
+def inner_product_4d_covariant(v1, v2, r, th, a):
+    g00 = gu00(r, th, a)
+    g01 = gu01(r, th, a)
+    g11 = gu11(r, th, a)
+    g13 = gu13(r, th, a)
+    g22 = gu22(r, th, a)
+    g33 = gu33(r, th, a)
+    return (g00 * v1[...,0] * v2[...,0] +
+            2 * g01 * v1[...,0] * v2[...,1] +
+            g11 * v1[...,1] * v2[...,1] +
+            2 * g13 * v1[...,1] * v2[...,3] +
+            g22 * v1[...,2] * v2[...,2] +
+            g33 * v1[...,3] * v2[...,3])
+
+# Raise a 4d covariant vector to a contravariant vector 
+def raise_4d_vec(v, r, th, a):
+    g00 = gu00(r, th, a)
+    g01 = gu01(r, th, a)
+    g11 = gu11(r, th, a)
+    g13 = gu13(r, th, a)
+    g22 = gu22(r, th, a)
+    g33 = gu33(r, th, a)
+    u0 = g00 * v[...,0] + g01 * v[...,1]
+    u1 = g01 * v[...,0] + g11 * v[...,1] + g13 * v[...,3]
+    u2 = g22 * v[...,2]
+    u3 = g13 * v[...,1] + g33 * v[...,3]
+    return np.stack([u0, u1, u2, u3], axis=-1)
