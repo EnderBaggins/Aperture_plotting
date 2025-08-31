@@ -125,7 +125,8 @@ class DataKerrSchild(DataSph):
     super().__init__(path)
     self.a = self._conf["bh_spin"]
     self.rH = rs_o(self.a)
-    self.extra_fld_keys = ["fluxB", "Dd1", "Dd2", "Dd3", "Bd1", "Bd2", "Bd3", "Ed1", "Ed2", "Ed3", "Hd1", "Hd2", "Hd3", "sigma"]
+    self.extra_fld_keys = ["fluxB", "Dd1", "Dd2", "Dd3", "Bd1", "Bd2", "Bd3", "Ed1", "Ed2", "Ed3", "Hd1", "Hd2", "Hd3", "sigma", "flux_upper", "flux_lower",
+                           "n_proper", "fluid_u_upper", "fluid_u_lower", "fluid_b_upper"]
     self.reload()
 
 #   def load_sph_mesh(self):
@@ -190,9 +191,15 @@ class DataKerrSchild(DataSph):
     elif key == "n_proper":
       self.__dict__[key] = np.sqrt(np.abs(inner_product_4d_covariant(self.flux_lower, self.flux_lower, self._rv, self._thetav, self.a)))
     elif key == "fluid_u_upper":
-      self.__dict__[key] = self.flux_upper / self.n_proper[..., np.newaxis]
+      indices = np.where(self.n_proper > 0)
+      u_upper = self.flux_upper
+      u_upper[indices] = self.flux_upper[indices] / self.n_proper[indices][..., np.newaxis]
+      self.__dict__[key] = u_upper
     elif key == "fluid_u_lower":
-      self.__dict__[key] = self.flux_lower / self.n_proper[..., np.newaxis]
+      indices = np.where(self.n_proper > 0)
+      u_lower = self.flux_lower
+      u_lower[indices] = self.flux_lower[indices] / self.n_proper[indices][..., np.newaxis]
+      self.__dict__[key] = u_lower
     elif key == "fluid_b_upper":
       # compute b vector in the fluid rest frame
       B = np.stack([np.zeros_like(data.B1), data.B1, data.B2, data.B3], axis=-1)
