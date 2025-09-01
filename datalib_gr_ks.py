@@ -127,7 +127,7 @@ class DataKerrSchild(DataSph):
     self.rH = rs_o(self.a)
     self.extra_fld_keys = ["fluxB", "Dd1", "Dd2", "Dd3", "D", "Bd1", "Bd2", "Bd3", "B", "Ed1", "Ed2", "Ed3", "Hd1", "Hd2", "Hd3", "sigma", "flux_upper",
                            "flux_lower", "n_proper", "fluid_u_upper", "fluid_u_lower", "fluid_b_upper", "stress_e", "stress_p", "frf_transform", 
-                           "frf_T_munu", "plasma_temp", "pressure_para", "pressure_perp", "plasma_beta"]
+                           "frf_T_munu", "plasma_temp", "pressure_para", "pressure_perp", "plasma_beta", "frf_B"]
     self.reload()
 
 #   def load_sph_mesh(self):
@@ -186,8 +186,8 @@ class DataKerrSchild(DataSph):
       self.__dict__[key] = alpha(self._rv, self._thetav, self.a) * self.Bd2 + gmsqrt(self._rv, self._thetav, self.a) * beta1u(self._rv, self._thetav, self.a) * self.E3
     elif key == "Hd3":
       self.__dict__[key] = alpha(self._rv, self._thetav, self.a) * self.Bd3 - gmsqrt(self._rv, self._thetav, self.a) * beta1u(self._rv, self._thetav, self.a) * self.E2
-    elif key == "sigma": # this is the cold sigma
-      self.__dict__[key] = (self.B1 * self.Bd1 + self.B2 * self.Bd2 + self.B3 * self.Bd3) / (self.Rho_p - self.Rho_e + 1e-6)
+    elif key == "sigma": # this is the cold sigma, computed in the KerrSchild coordinate frame
+      self.__dict__[key] = self.B**2 / (self.Rho_p - self.Rho_e + 1e-6)
     elif key == "flux_upper":
       self.__dict__[key] = compute_fluid_4flux_upper(self)
     elif key == "flux_lower":
@@ -205,7 +205,7 @@ class DataKerrSchild(DataSph):
       u_lower = self.flux_lower
       u_lower[indices] = self.flux_lower[indices] / self.n_proper[indices][..., np.newaxis]
       self.__dict__[key] = u_lower
-    elif key == "fluid_b_upper":
+    elif key == "frf_B":
       # compute b vector in the fluid rest frame
       B = np.stack([np.zeros_like(self.B1), self.B1, self.B2, self.B3], axis=-1)
       E = np.stack([np.zeros_like(self.Ed1), self.Ed1, self.Ed2, self.Ed3], axis=-1)
@@ -217,9 +217,10 @@ class DataKerrSchild(DataSph):
       b2 = -u_lower[...,0] * B[...,2] / alpha_val - (u_lower[...,3] * E[...,1] - u_lower[...,1] * E[...,3]) / alpha_val / sqrt_gm
       b3 = -u_lower[...,0] * B[...,3] / alpha_val - (u_lower[...,1] * E[...,2] - u_lower[...,2] * E[...,1]) / alpha_val / sqrt_gm
       # b_upper = np.array([b0, b1, b2, b3])
-      b_upper = np.stack([b0, b1, b2, b3], axis=-1)
-      bnorm = np.sqrt(inner_product_4d_contravariant(b_upper, b_upper, self._rv, self._thetav, self.a))
-      self.__dict__[key] = np.stack([b0, b1, b2, b3], axis=-1) / bnorm[..., np.newaxis]
+      self.__dict__[key] = np.stack([b0, b1, b2, b3], axis=-1)
+    elif key == "fluid_b_upper":
+      bnorm = np.sqrt(inner_product_4d_contravariant(self.frf_B, self.frf_B, self._rv, self._thetav, self.a))
+      self.__dict__[key] = self.frf_B / bnorm[..., np.newaxis]
     elif key == "stress_e":
       stress_e = np.stack([[self.stress_e00, self.stress_e01, self.stress_e02, self.stress_e03],
                            [self.stress_e01, self.stress_e11, self.stress_e12, self.stress_e13],
@@ -267,7 +268,7 @@ class DataKerrSchild(DataSph):
     elif key == "pressure_perp":
       self.__dict__[key] = (self.frf_T_munu[:, :, 1, 1] + self.frf_T_munu[:, :, 2, 2]) / 2.0
     elif key == "plasma_beta":
-      self.__dict__[key] = self.plasma_temp * self.n_proper / (0.5 * self.B**2 + 1e-6)
+      self.__dict__[key] = self.plasma_temp * self.n_proper / (0.5 * inner_product_4d_contravariant(self.frf_B, self.frf_B, self._rv, self._thetav, self.a) + 1e-6)
     # elif key
     # elif key == "J":
     #   self._J = np.sqrt(self.J1 * self.J1 + self.J2 * self.J2 + self.J3 * self.J3)
