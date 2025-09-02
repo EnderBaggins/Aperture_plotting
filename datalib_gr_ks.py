@@ -120,6 +120,7 @@ for i in range(4):
 
 class DataKerrSchild(DataSph):
   _mesh_loaded = False
+  _metric_ready = False
 
   def __init__(self, path):
     super().__init__(path)
@@ -128,26 +129,44 @@ class DataKerrSchild(DataSph):
     self.extra_fld_keys = ["fluxB", "Dd1", "Dd2", "Dd3", "D", "Bd1", "Bd2", "Bd3", "B", "Ed1", "Ed2", "Ed3", "Hd1", "Hd2", "Hd3", "sigma", "flux_upper",
                            "flux_lower", "n_proper", "fluid_u_upper", "fluid_u_lower", "fluid_b_upper", "stress_e", "stress_p", "frf_transform", 
                            "frf_T_munu", "plasma_temp", "pressure_para", "pressure_perp", "plasma_beta", "frf_B"]
+    self.compute_metrics()
     self.reload()
 
-#   def load_sph_mesh(self):
-#      return super().load_sph_mesh()
+  def compute_metrics(self):
+    if self._metric_ready:
+      return
+    self.g_upper = np.zeros((self.x1.shape[0], self.x1.shape[1], 4, 4))
 
-#   def __getattr__(self, key):
-#     if key not in self.__dict__:
-#       if key in self._fld_keys:
-#         self._load_fld_quantity(key)
-#       elif key in self._ptc_keys:
-#         self._load_ptc_quantity(key)
-#       elif key in self._mesh_keys:
-#         self._load_mesh_quantity(key)
-#       elif key == "keys":
-#         self.__dict__[key] = self._fld_keys + self._ptc_keys + self._mesh_keys
-#       elif key == "conf":
-#         self.__dict__[key] = self._conf
-#       else:
-#         return None
-#     return self.__dict__[key]
+    self.g_upper[:, :, 0, 0] = gu00(self._rv, self._thetav, self.a)
+    self.g_upper[:, :, 0, 1] = self.g_upper[:, :, 1, 0] = gu01(self._rv, self._thetav, self.a)
+    self.g_upper[:, :, 1, 1] = gu11(self._rv, self._thetav, self.a)
+    self.g_upper[:, :, 2, 2] = gu22(self._rv, self._thetav, self.a)
+    self.g_upper[:, :, 3, 3] = gu33(self._rv, self._thetav, self.a)
+    self.g_upper[:, :, 1, 3] = self.g_upper[:, :, 3, 1] = gu13(self._rv, self._thetav, self.a)
+
+    self.g_lower = np.zeros((self.x1.shape[0], self.x1.shape[1], 4, 4))
+
+    self.g_lower[:, :, 0, 0] = gd00(self._rv, self._thetav, self.a)
+    self.g_lower[:, :, 0, 1] = self.g_lower[:, :, 1, 0] = gd01(self._rv, self._thetav, self.a)
+    self.g_lower[:, :, 0, 3] = self.g_lower[:, :, 3, 0] = gd03(self._rv, self._thetav, self.a)
+    self.g_lower[:, :, 1, 1] = gd11(self._rv, self._thetav, self.a)
+    self.g_lower[:, :, 2, 2] = gd22(self._rv, self._thetav, self.a)
+    self.g_lower[:, :, 3, 3] = gd33(self._rv, self._thetav, self.a)
+    self.g_lower[:, :, 1, 3] = self.g_lower[:, :, 3, 1] = gd13(self._rv, self._thetav, self.a)
+    self._metric_ready = True
+
+  def raise_4d_vec(self, vec_lower):
+    if not self._metric_ready:
+      self.compute_metrics()
+    return np.einsum("ijab,ijb->ija", self.g_upper, vec_lower)
+
+  def lower_4d_vec(self, vec_upper):
+    if not self._metric_ready:
+      self.compute_metrics()
+    return np.einsum("ijab,ijb->ija", self.g_lower, vec_upper)
+  
+  def dot_4d(self, vec_upper, vec_lower):
+    return np.einsum("ija, ijb->ij", vec_upper, vec_lower)
 
   def _load_fld_quantity(self, key):
     path = os.path.join(self._path, f"fld.{self._current_fld_step:05d}.h5")
@@ -189,20 +208,22 @@ class DataKerrSchild(DataSph):
     elif key == "sigma": # this is the cold sigma, computed in the KerrSchild coordinate frame
       self.__dict__[key] = self.B**2 / (self.Rho_p - self.Rho_e + 1e-6)
     elif key == "flux_upper":
-      self.__dict__[key] = compute_fluid_4flux_upper(self)
+      self.__dict__[key] = self.raise_4d_vec(self.flux_lower)
     elif key == "flux_lower":
       self.__dict__[key] = np.stack([self.num_e + self.num_p, self.flux_e1 + self.flux_p1,
                                      self.flux_e2 + self.flux_p2, self.flux_e3 + self.flux_p3], axis=-1)
     elif key == "n_proper":
-      self.__dict__[key] = np.sqrt(np.abs(inner_product_4d_covariant(self.flux_lower, self.flux_lower, self._rv, self._thetav, self.a)))
+      # self.__dict__[key] = np.sqrt(np.abs(inner_product_4d_covariant(self.flux_lower, self.flux_lower, self._rv, self._thetav, self.a)))
+      # Technically we know that flux is timelike and we should just insert a negative sign. However abs is more robust
+      self.__dict__[key] = np.sqrt(np.abs(self.dot_4d(self.flux_upper, self.flux_lower)))
     elif key == "fluid_u_upper":
       indices = np.where(self.n_proper > 0)
-      u_upper = self.flux_upper
+      u_upper = np.copy(self.flux_upper)
       u_upper[indices] = self.flux_upper[indices] / self.n_proper[indices][..., np.newaxis]
       self.__dict__[key] = u_upper
     elif key == "fluid_u_lower":
       indices = np.where(self.n_proper > 0)
-      u_lower = self.flux_lower
+      u_lower = np.copy(self.flux_lower)
       u_lower[indices] = self.flux_lower[indices] / self.n_proper[indices][..., np.newaxis]
       self.__dict__[key] = u_lower
     elif key == "frf_B":
@@ -222,20 +243,42 @@ class DataKerrSchild(DataSph):
       bnorm = np.sqrt(inner_product_4d_contravariant(self.frf_B, self.frf_B, self._rv, self._thetav, self.a))
       self.__dict__[key] = self.frf_B / bnorm[..., np.newaxis]
     elif key == "stress_e":
-      stress_e = np.stack([[self.stress_e00, self.stress_e01, self.stress_e02, self.stress_e03],
-                           [self.stress_e01, self.stress_e11, self.stress_e12, self.stress_e13],
-                           [self.stress_e02, self.stress_e12, self.stress_e22, self.stress_e23],
-                           [self.stress_e03, self.stress_e13, self.stress_e23, self.stress_e33]
-                          ], axis=-1)  # shape: (4, 4, grid_y, grid_x)
-      stress_e = np.moveaxis(stress_e, 0, -2)  # shape: (grid_y, grid_x, 4, 4)
+      stress_e = np.zeros((self.x1.shape[0], self.x1.shape[1], 4, 4))
+      stress_e[:, :, 0, 0] = self.stress_e00
+      stress_e[:, :, 0, 1] = stress_e[:, :, 1, 0] = self.stress_e01
+      stress_e[:, :, 0, 2] = stress_e[:, :, 2, 0] = self.stress_e02
+      stress_e[:, :, 0, 3] = stress_e[:, :, 3, 0] = self.stress_e03
+      stress_e[:, :, 1, 1] = self.stress_e11
+      stress_e[:, :, 1, 2] = stress_e[:, :, 2, 1] = self.stress_e12
+      stress_e[:, :, 1, 3] = stress_e[:, :, 3, 1] = self.stress_e13
+      stress_e[:, :, 2, 2] = self.stress_e22
+      stress_e[:, :, 2, 3] = stress_e[:, :, 3, 2] = self.stress_e23
+      stress_e[:, :, 3, 3] = self.stress_e33
+      # stress_e = np.stack([[self.stress_e00, self.stress_e01, self.stress_e02, self.stress_e03],
+      #                      [self.stress_e01, self.stress_e11, self.stress_e12, self.stress_e13],
+      #                      [self.stress_e02, self.stress_e12, self.stress_e22, self.stress_e23],
+      #                      [self.stress_e03, self.stress_e13, self.stress_e23, self.stress_e33]
+      #                     ], axis=-1)  # shape: (4, 4, grid_y, grid_x)
+      # stress_e = np.moveaxis(stress_e, 0, -2)  # shape: (grid_y, grid_x, 4, 4)
       self.__dict__[key] = stress_e
     elif key == "stress_p":
-      stress_p = np.stack([[self.stress_p00, self.stress_p01, self.stress_p02, self.stress_p03],
-                           [self.stress_p01, self.stress_p11, self.stress_p12, self.stress_p13],
-                           [self.stress_p02, self.stress_p12, self.stress_p22, self.stress_p23],
-                           [self.stress_p03, self.stress_p13, self.stress_p23, self.stress_p33]
-                          ], axis=-1)  # shape: (4, 4, grid_y, grid_x)
-      stress_p = np.moveaxis(stress_p, 0, -2)  # shape: (grid_y, grid_x, 4, 4)
+      stress_p = np.zeros((self.x1.shape[0], self.x1.shape[1], 4, 4))
+      stress_p[:, :, 0, 0] = self.stress_p00
+      stress_p[:, :, 0, 1] = stress_p[:, :, 1, 0] = self.stress_p01
+      stress_p[:, :, 0, 2] = stress_p[:, :, 2, 0] = self.stress_p02
+      stress_p[:, :, 0, 3] = stress_p[:, :, 3, 0] = self.stress_p03
+      stress_p[:, :, 1, 1] = self.stress_p11
+      stress_p[:, :, 1, 2] = stress_p[:, :, 2, 1] = self.stress_p12
+      stress_p[:, :, 1, 3] = stress_p[:, :, 3, 1] = self.stress_p13
+      stress_p[:, :, 2, 2] = self.stress_p22
+      stress_p[:, :, 2, 3] = stress_p[:, :, 3, 2] = self.stress_p23
+      stress_p[:, :, 3, 3] = self.stress_p33
+      # stress_p = np.stack([[self.stress_p00, self.stress_p01, self.stress_p02, self.stress_p03],
+      #                      [self.stress_p01, self.stress_p11, self.stress_p12, self.stress_p13],
+      #                      [self.stress_p02, self.stress_p12, self.stress_p22, self.stress_p23],
+      #                      [self.stress_p03, self.stress_p13, self.stress_p23, self.stress_p33]
+      #                     ], axis=-1)  # shape: (4, 4, grid_y, grid_x)
+      # stress_p = np.moveaxis(stress_p, 0, -2)  # shape: (grid_y, grid_x, 4, 4)
       self.__dict__[key] = stress_p
     elif key == "frf_transform":
       t_vec = np.array([0, 1, 0, 0])
@@ -285,93 +328,108 @@ class DataKerrSchild(DataSph):
 
 # Compute the local flux 4 vector of electrons
 def compute_fluid_4flux_e_upper(data):
-    a = data.conf["bh_spin"]
-    u0 = gu00(data._rv, data._thetav, a) * data.num_e + gu01(data._rv, data._thetav, a) * data.flux_e1
-    u1 = gu11(data._rv, data._thetav, a) * data.flux_e1 + gu01(data._rv, data._thetav, a) * data.num_e + gu13(data._rv, data._thetav, a) * data.flux_e3
-    u2 = gu22(data._rv, data._thetav, a) * data.flux_e2
-    u3 = gu33(data._rv, data._thetav, a) * data.flux_e3 + gu13(data._rv, data._thetav, a) * data.flux_e1
-    # Stack the components along the last axis to get shape (..., 4)
-    return np.stack([u0, u1, u2, u3], axis=-1)
+  a = data.conf["bh_spin"]
+  u0 = gu00(data._rv, data._thetav, a) * data.num_e + gu01(data._rv, data._thetav, a) * data.flux_e1
+  u1 = gu11(data._rv, data._thetav, a) * data.flux_e1 + gu01(data._rv, data._thetav, a) * data.num_e + gu13(data._rv, data._thetav, a) * data.flux_e3
+  u2 = gu22(data._rv, data._thetav, a) * data.flux_e2
+  u3 = gu33(data._rv, data._thetav, a) * data.flux_e3 + gu13(data._rv, data._thetav, a) * data.flux_e1
+  # Stack the components along the last axis to get shape (..., 4)
+  return np.stack([u0, u1, u2, u3], axis=-1)
 
 # Compute the local flux 4 vector of positrons
 def compute_fluid_4flux_p_upper(data):
-    a = data.conf["bh_spin"]
-    u0 = gu00(data._rv, data._thetav, a) * data.num_p + gu01(data._rv, data._thetav, a) * data.flux_p1
-    u1 = gu11(data._rv, data._thetav, a) * data.flux_p1 + gu01(data._rv, data._thetav, a) * data.num_p + gu13(data._rv, data._thetav, a) * data.flux_p3
-    u2 = gu22(data._rv, data._thetav, a) * data.flux_p2
-    u3 = gu33(data._rv, data._thetav, a) * data.flux_p3 + gu13(data._rv, data._thetav, a) * data.flux_p1
-    # Stack the components along the last axis to get shape (..., 4)
-    return np.stack([u0, u1, u2, u3], axis=-1)
+  a = data.conf["bh_spin"]
+  u0 = gu00(data._rv, data._thetav, a) * data.num_p + gu01(data._rv, data._thetav, a) * data.flux_p1
+  u1 = gu11(data._rv, data._thetav, a) * data.flux_p1 + gu01(data._rv, data._thetav, a) * data.num_p + gu13(data._rv, data._thetav, a) * data.flux_p3
+  u2 = gu22(data._rv, data._thetav, a) * data.flux_p2
+  u3 = gu33(data._rv, data._thetav, a) * data.flux_p3 + gu13(data._rv, data._thetav, a) * data.flux_p1
+  # Stack the components along the last axis to get shape (..., 4)
+  return np.stack([u0, u1, u2, u3], axis=-1)
 
 # Compute the local flux 4 vector of electrons and positrons as a single fluid
 def compute_fluid_4flux_upper(data):
-    flux_upper_e = compute_fluid_4flux_e_upper(data)
-    flux_upper_p = compute_fluid_4flux_p_upper(data)
-    return flux_upper_e + flux_upper_p
+  flux_upper_e = compute_fluid_4flux_e_upper(data)
+  flux_upper_p = compute_fluid_4flux_p_upper(data)
+  return flux_upper_e + flux_upper_p
 
 # Compute the proper density of electrons
 def compute_fluid_proper_density_e(data):
-    flux_upper_e = compute_fluid_4flux_e_upper(data)
-    # flux_upper_p = compute_fluid_4flux_p_upper(data)
-    n_e = np.sqrt(np.abs(flux_upper_e[:,:,0]*data.num_e + flux_upper_e[:,:,1]*data.flux_e1 + flux_upper_e[:,:,2]*data.flux_e2 + flux_upper_e[:,:,3]*data.flux_e3))
-    # n_p = np.sqrt(np.maximum(0.0, flux_upper_p[:,:,0]*data.num_p + flux_upper_p[:,:,1]*data.flux_p1 + flux_upper_p[:,:,2]*data.flux_p2 + flux_upper_p[:,:,3]*data.flux_p3))
-    return n_e
+  flux_upper_e = compute_fluid_4flux_e_upper(data)
+  # flux_upper_p = compute_fluid_4flux_p_upper(data)
+  n_e = np.sqrt(np.abs(flux_upper_e[:,:,0]*data.num_e + flux_upper_e[:,:,1]*data.flux_e1 + flux_upper_e[:,:,2]*data.flux_e2 + flux_upper_e[:,:,3]*data.flux_e3))
+  # n_p = np.sqrt(np.maximum(0.0, flux_upper_p[:,:,0]*data.num_p + flux_upper_p[:,:,1]*data.flux_p1 + flux_upper_p[:,:,2]*data.flux_p2 + flux_upper_p[:,:,3]*data.flux_p3))
+  return n_e
 
 # Compute the proper density of positrons
 def compute_fluid_proper_density_p(data):
-    flux_upper_p = compute_fluid_4flux_p_upper(data)
-    n_p = np.sqrt(np.abs(flux_upper_p[:,:,0]*data.num_p + flux_upper_p[:,:,1]*data.flux_p1 + flux_upper_p[:,:,2]*data.flux_p2 + flux_upper_p[:,:,3]*data.flux_p3))
-    return n_p
+  flux_upper_p = compute_fluid_4flux_p_upper(data)
+  n_p = np.sqrt(np.abs(flux_upper_p[:,:,0]*data.num_p + flux_upper_p[:,:,1]*data.flux_p1 + flux_upper_p[:,:,2]*data.flux_p2 + flux_upper_p[:,:,3]*data.flux_p3))
+  return n_p
 
 # Compute the proper density of electrons and positrons as a single fluid
 def compute_fluid_proper_density(data):
-    flux_upper = compute_fluid_4flux_upper(data)
-    n_e = np.sqrt(np.abs(flux_upper[:,:,0]*data.num_e + flux_upper[:,:,1]*data.flux_e1 + flux_upper[:,:,2]*data.flux_e2 + flux_upper[:,:,3]*data.flux_e3))
-    n_p = np.sqrt(np.abs(flux_upper[:,:,0]*data.num_p + flux_upper[:,:,1]*data.flux_p1 + flux_upper[:,:,2]*data.flux_p2 + flux_upper[:,:,3]*data.flux_p3))
-    return n_e + n_p
+  flux_upper = compute_fluid_4flux_upper(data)
+  n_e = np.sqrt(np.abs(flux_upper[:,:,0]*data.num_e + flux_upper[:,:,1]*data.flux_e1 + flux_upper[:,:,2]*data.flux_e2 + flux_upper[:,:,3]*data.flux_e3))
+  n_p = np.sqrt(np.abs(flux_upper[:,:,0]*data.num_p + flux_upper[:,:,1]*data.flux_p1 + flux_upper[:,:,2]*data.flux_p2 + flux_upper[:,:,3]*data.flux_p3))
+  return n_e + n_p
 
 # Inner product of two 4d contravariant vectors
 def inner_product_4d_contravariant(v1, v2, r, th, a):
-    g00 = gd00(r, th, a)
-    g01 = gd01(r, th, a)
-    g03 = gd03(r, th, a)
-    g11 = gd11(r, th, a)
-    g13 = gd13(r, th, a)
-    g22 = gd22(r, th, a)
-    g33 = gd33(r, th, a)
-    return (g00 * v1[...,0] * v2[...,0] +
-            2 * g01 * v1[...,0] * v2[...,1] +
-            2 * g03 * v1[...,0] * v2[...,3] +
-            g11 * v1[...,1] * v2[...,1] +
-            2 * g13 * v1[...,1] * v2[...,3] +
-            g22 * v1[...,2] * v2[...,2] +
-            g33 * v1[...,3] * v2[...,3])
+  g00 = gd00(r, th, a)
+  g01 = gd01(r, th, a)
+  g03 = gd03(r, th, a)
+  g11 = gd11(r, th, a)
+  g13 = gd13(r, th, a)
+  g22 = gd22(r, th, a)
+  g33 = gd33(r, th, a)
+  return (g00 * v1[...,0] * v2[...,0] +
+          2 * g01 * v1[...,0] * v2[...,1] +
+          2 * g03 * v1[...,0] * v2[...,3] +
+          g11 * v1[...,1] * v2[...,1] +
+          2 * g13 * v1[...,1] * v2[...,3] +
+          g22 * v1[...,2] * v2[...,2] +
+          g33 * v1[...,3] * v2[...,3])
 
 # Inner product of two 4d covariant vectors
 def inner_product_4d_covariant(v1, v2, r, th, a):
-    g00 = gu00(r, th, a)
-    g01 = gu01(r, th, a)
-    g11 = gu11(r, th, a)
-    g13 = gu13(r, th, a)
-    g22 = gu22(r, th, a)
-    g33 = gu33(r, th, a)
-    return (g00 * v1[...,0] * v2[...,0] +
-            2 * g01 * v1[...,0] * v2[...,1] +
-            g11 * v1[...,1] * v2[...,1] +
-            2 * g13 * v1[...,1] * v2[...,3] +
-            g22 * v1[...,2] * v2[...,2] +
-            g33 * v1[...,3] * v2[...,3])
+  g00 = gu00(r, th, a)
+  g01 = gu01(r, th, a)
+  g11 = gu11(r, th, a)
+  g13 = gu13(r, th, a)
+  g22 = gu22(r, th, a)
+  g33 = gu33(r, th, a)
+  return (g00 * v1[...,0] * v2[...,0] +
+          2 * g01 * v1[...,0] * v2[...,1] +
+          g11 * v1[...,1] * v2[...,1] +
+          2 * g13 * v1[...,1] * v2[...,3] +
+          g22 * v1[...,2] * v2[...,2] +
+          g33 * v1[...,3] * v2[...,3])
 
 # Raise a 4d covariant vector to a contravariant vector 
 def raise_4d_vec(v, r, th, a):
-    g00 = gu00(r, th, a)
-    g01 = gu01(r, th, a)
-    g11 = gu11(r, th, a)
-    g13 = gu13(r, th, a)
-    g22 = gu22(r, th, a)
-    g33 = gu33(r, th, a)
-    u0 = g00 * v[...,0] + g01 * v[...,1]
-    u1 = g01 * v[...,0] + g11 * v[...,1] + g13 * v[...,3]
-    u2 = g22 * v[...,2]
-    u3 = g13 * v[...,1] + g33 * v[...,3]
-    return np.stack([u0, u1, u2, u3], axis=-1)
+  g00 = gu00(r, th, a)
+  g01 = gu01(r, th, a)
+  g11 = gu11(r, th, a)
+  g13 = gu13(r, th, a)
+  g22 = gu22(r, th, a)
+  g33 = gu33(r, th, a)
+  u0 = g00 * v[...,0] + g01 * v[...,1]
+  u1 = g01 * v[...,0] + g11 * v[...,1] + g13 * v[...,3]
+  u2 = g22 * v[...,2]
+  u3 = g13 * v[...,1] + g33 * v[...,3]
+  return np.stack([u0, u1, u2, u3], axis=-1)
+
+# Lower a 4d contravariant vector to a covariant vector
+def lower_4d_vec(v, r, th, a):
+  g00 = gd00(r, th, a)
+  g01 = gd01(r, th, a)
+  g03 = gd03(r, th, a)
+  g11 = gd11(r, th, a)
+  g13 = gd13(r, th, a)
+  g22 = gd22(r, th, a)
+  g33 = gd33(r, th, a)
+  l0 = g00 * v[...,0] + g01 * v[...,1] + g03 * v[...,3]
+  l1 = g01 * v[...,0] + g11 * v[...,1] + g13 * v[...,3]
+  l2 = g22 * v[...,2]
+  l3 = g13 * v[...,1] + g33 * v[...,3] + g03 * v[...,0]
+  return np.stack([l0, l1, l2, l3], axis=-1)
