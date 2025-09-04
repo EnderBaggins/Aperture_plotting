@@ -166,7 +166,7 @@ class DataKerrSchild(DataSph):
     return np.einsum("ijab,ijb->ija", self.g_lower, vec_upper)
   
   def dot_4d(self, vec_upper, vec_lower):
-    return np.einsum("ija, ijb->ij", vec_upper, vec_lower)
+    return np.einsum("ija, ija->ij", vec_upper, vec_lower)
 
   def _load_fld_quantity(self, key):
     path = os.path.join(self._path, f"fld.{self._current_fld_step:05d}.h5")
