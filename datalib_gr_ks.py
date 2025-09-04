@@ -9,13 +9,6 @@ import re
 from datalib import Data, flag_to_species
 from datalib_logsph import DataSph
 
-def rho2(a, r, th):
-  return r * r + (a * np.cos(th))**2
-
-def sqrt_gamma(a, r, th):
-  r2 = rho2(a, r, th)
-  return r2 * np.sin(th) * np.sqrt(1.0 + 2.0 * r / r2)
-
 def Sigma(r,th,a):
   return r**2+a**2*np.cos(th)**2
 def Delta(r,a):
@@ -126,7 +119,8 @@ class DataKerrSchild(DataSph):
     super().__init__(path)
     self.a = self._conf["bh_spin"]
     self.rH = rs_o(self.a)
-    self.extra_fld_keys = ["fluxB", "Dd1", "Dd2", "Dd3", "D", "Bd1", "Bd2", "Bd3", "B", "Ed1", "Ed2", "Ed3", "Hd1", "Hd2", "Hd3", "sigma", "flux_upper",
+    self.extra_fld_keys = ["fluxB", "Dd1", "Dd2", "Dd3", "D", "Bd1", "Bd2", "Bd3", "B", "Ed1", "Ed2", "Ed3", "Hd1", "Hd2", "Hd3",
+                           "sigma", "flux_upper",
                            "flux_lower", "n_proper", "fluid_u_upper", "fluid_u_lower", "fluid_b_upper", "stress_e", "stress_p", "frf_transform", 
                            "frf_T_munu", "plasma_temp", "pressure_para", "pressure_perp", "plasma_beta", "frf_B"]
     self.compute_metrics()
@@ -172,7 +166,7 @@ class DataKerrSchild(DataSph):
     path = os.path.join(self._path, f"fld.{self._current_fld_step:05d}.h5")
     if key == "fluxB":
       self._load_sph_mesh()
-      self.__dict__[key] = np.cumsum(self.B1 * sqrt_gamma(self.a, self._rv, self._thetav) * self._dtheta, axis=0)
+      self.__dict__[key] = np.cumsum(self.B1 * gmsqrt(self._rv, self._thetav, self.a) * self._dtheta, axis=0)
     # Lower components of D
     elif key == "Dd1":
       self.__dict__[key] = gmd11(self._rv, self._thetav, self.a) * self.E1 + gmd13(self._rv, self._thetav, self.a) * self.E3
@@ -181,7 +175,7 @@ class DataKerrSchild(DataSph):
     elif key == "Dd3":
       self.__dict__[key] = gmd13(self._rv, self._thetav, self.a) * self.E1 + gmd33(self._rv, self._thetav, self.a) * self.E3
     elif key == "D":
-      self.__dict__[key] = np.sqrt(self.Dd1 * self.Dd1 + self.Dd2 * self.Dd2 + self.Dd3 * self.Dd3)
+      self.__dict__[key] = np.sqrt(self.E1 * self.Dd1 + self.E2 * self.Dd2 + self.E3 * self.Dd3)
     # Lower components of B
     elif key == "Bd1":
       self.__dict__[key] = gmd11(self._rv, self._thetav, self.a) * self.B1 + gmd13(self._rv, self._thetav, self.a) * self.B3
