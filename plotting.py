@@ -17,7 +17,7 @@ import os
 import sys
 sys.path.append('.')
 
-from datalib_logsph import DataSph, flag_to_species
+from datalib_logsph import DataSph, flag_to_species, flag_to_radiation
 from datalib import Data
 
 from typing import Any #used in __setattr__ to allow any attribute type to be set

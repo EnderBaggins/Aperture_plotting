@@ -308,6 +308,7 @@ def get_ptc_id(data,step,num,**kwargs):
     thmin = kwargs.get('thmin',0)
     thmax = kwargs.get('thmax',np.pi/2)
     species = kwargs.get('species',False)
+    consider_radiation = kwargs.get('consider_radiation',False)
     data.load(step)
     r = np.exp(data.tracked_ptc_x1)
     th = data.tracked_ptc_x2
@@ -316,7 +317,18 @@ def get_ptc_id(data,step,num,**kwargs):
     if species is not False:
         flag_val = apl.flag_to_species(data.tracked_ptc_flag)
         mask = mask & (flag_val == species)
-    valid_ids = data.tracked_ptc_id[mask]
+    current_ids = data.tracked_ptc_id.copy()
+    current_mask = mask.copy()
+    valid_ids = current_ids[current_mask]
+    # valid_ids = data.tracked_ptc_id[mask]
+    if consider_radiation is not False:
+        data.load(0)
+        zero_ids = data.tracked_ptc_id
+        ids_not_in_step0 = np.setdiff1d(valid_ids, zero_ids)
+        mask = mask & np.isin(current_ids, ids_not_in_step0)
+        # flag_val = apl.flag_to_radiation(data.tracked_ptc_flag)
+        # mask = mask & (flag_val == consider_radiation)
+    valid_ids = current_ids[mask]
     if len(valid_ids) > num:
         return np.random.choice(valid_ids,num)
     else:
@@ -380,9 +392,11 @@ def particle_series1(data, ptc_id, key):
         key = [key]
     # we make an array with ptc_id as first index, key as second index, 
     # and steps as third index
-    result = np.zeros((len(ptc_id), len(key), len(data.ptc_steps)))
-    for n in data.ptc_steps:
-        data.load_ptc(n)
+    result = np.full((len(ptc_id), len(key), len(data.ptc_steps)),np.nan)
+    times = []
+    for idx,n in enumerate(data.ptc_steps):
+        data.load(n)
+        times.append(data.time)
         tracked_id = data.tracked_ptc_id
         if tracked_id is None:
             # print(f"No tracked particles found in step {n}. Skipping.")
@@ -401,7 +415,52 @@ def particle_series1(data, ptc_id, key):
                 else:
                     result[i,j,n] = np.nan
     
+    return result, np.array(times)
+import numpy as np
+
+def particle_series2(data, ptc_id, key):
+    if not isinstance(ptc_id, (list, np.ndarray)):
+        ptc_id = [ptc_id]
+    elif isinstance(ptc_id, np.ndarray):
+        ptc_id = ptc_id.tolist()
+    if not isinstance(key, list):
+        key = [key]
+
+    n_steps = len(data.ptc_steps)
+    n_ptc = len(ptc_id)
+    n_key = len(key)
+    result = np.full((n_ptc, n_key, n_steps), np.nan)
+
+    ptc_id_arr = np.array(ptc_id)
+
+    for step_idx, n in enumerate(data.ptc_steps):
+        data.load_ptc(n)
+        tracked_id = data.tracked_ptc_id
+        if tracked_id is None or len(tracked_id) == 0:
+            continue
+
+        # Vectorized check which ptc_id are present this step
+        present_mask = np.isin(ptc_id_arr, tracked_id)
+        if not np.any(present_mask):
+            continue
+
+        # For present particles, find indices in tracked_id
+        # Use np.where for index retrieval per ptc_id
+        indices = np.array([np.where(tracked_id == pid)[0][0] if pid in tracked_id else -1 for pid in ptc_id_arr])
+
+        for j, k in enumerate(key):
+            attr_data = getattr(data, k)
+            if attr_data is None:
+                continue
+
+            for i, idx in enumerate(indices):
+                if idx == -1:
+                    continue
+                val = attr_data[idx]
+                result[i, j, step_idx] = val
+
     return result
+
 
     ## Voltages section
     def convert_to_index(ax_index,value,data):
@@ -988,31 +1047,34 @@ def spectra(name="spectral_lineout", **kwargs):
         X1, Y1 = np.meshgrid(X1, Y1)
         # spatial grid including downsampling
         N = data._conf["N"]                # [1024, 1024]
+        
         lower = data._conf["lower"]        # [0, 0]
         size = data._conf["size"]          # [3.4, 3.14]
         downsample = data._conf["ph_flux_downsample"]  # 16
-        
         N_r = N[0] // downsample           # 64
         N_th = N[1] // downsample          # 64
         r = np.exp(np.linspace(lower[0], lower[0] + size[0], N_r))
         theta = np.linspace(lower[1], lower[1] + size[1], N_th)
         # accessing the specific flux tube to see the specta for
-        R_max_range = kwargs.get('R_max_range', None)  # Default range for R_max
-        if R_max_range is not None:
-            R_max_max = np.max(R_max_range)  # Maximum R_max value
-            R_max_min = np.min(R_max_range)  # Minimum R_max value
-            def flux_tube_mask(r,theta):
-            # mask for the r,theta values
-                R_max = r/ (np.sin(theta)**2+1e-15)  # r_max = 1/sin(theta)^2  #TODO: Double check
-                return (R_max >= R_max_min) & (R_max <= R_max_max)
+        R_max_range = kwargs.get('R_max_range', [1,1e6])  # Default range for R_max
+        th_range = kwargs.get('th_range', [0,np.pi])
+        
+        R_max_max = np.max(R_max_range)  # Maximum R_max value
+        R_max_min = np.min(R_max_range)  # Minimum R_max value
+        th_min = np.min(th_range)
+        th_max = np.max(th_range)
+        def flux_tube_mask(r,theta):
+        # mask for the r,theta values
+            R_max = r/ (np.sin(theta)**2+1e-15)  # r_max = 1/sin(theta)^2  #TODO: Double check
+            return (R_max >= R_max_min) & (R_max <= R_max_max) & (theta >= th_min) & (theta <= th_max)
             
-            r2d, th2d = np.meshgrid(r, theta, indexing='ij')  # shape (N_r, N_th)
-            mask = flux_tube_mask(r2d, th2d)
-            mask_reshape = mask[:,:, np.newaxis, np.newaxis]  # shape (N_r, N_th, 1, 1)
-            masked_flux = np.where(mask_reshape, data.resonant_ph_flux, 0)
-            flux_data = (1e-13+np.sum(masked_flux, axis=(0, 1))) # shape (N_e, N_th)
-        else:
-            flux_data = (1e-13+np.sum(data.resonant_ph_flux, axis=(0, 1)))
+        r2d, th2d = np.meshgrid(r, theta, indexing='ij')  # shape (N_r, N_th)
+        mask = flux_tube_mask(r2d, th2d)
+        mask_reshape = mask[:,:, np.newaxis, np.newaxis]  # shape (N_r, N_th, 1, 1)
+        masked_flux = np.where(mask_reshape, data.resonant_ph_flux, 0)
+        flux_data = (1e-13+np.sum(masked_flux, axis=(0, 1))) # shape (N_e, N_th)
+        # else:
+        #     flux_data = (1e-13+np.sum(data.resonant_ph_flux, axis=(0, 1)))
         theta = kwargs.get('theta', [90])
         
         if type(theta) is not list:
@@ -1040,5 +1102,206 @@ def spectra(name="spectral_lineout", **kwargs):
 
 
     return apl.apt_post(name, func, **kwargs)
-
 apl.apt_post_types["spectra"] = spectra
+def radial_spectra(name="spectral_lineout", **kwargs):
+    '''
+    Apt_post object to plot the resonant photon flux as a function of energy and theta.
+    Args:
+    theta : float or list of floats
+        The observer theta angle(s) in degrees.
+    R_max_range : the (small,large)  range of R_max for the flux tube
+    units: 'keV' or default 'm_e*x^2'
+    labels: labels for theta values (defaults to the theta values in degrees)
+        '''
+    def func(self, data, ax, **kwargs):
+        #accessing the ranges of the output photon flux structured as (energy,theta)
+        lower_e = data._conf['ph_flux_lower'][0]
+        upper_e = data._conf['ph_flux_upper'][0]
+        lower_theta = data._conf['ph_flux_lower'][1]
+        upper_theta = data._conf['ph_flux_upper'][1]
+        #creating the meshgrid for the energy and theta values
+        X1 = np.exp(np.linspace(np.log10(lower_e), np.log10(upper_e), num=data.resonant_ph_flux.shape[3])*np.log(10))
+        Y1 = np.linspace(lower_theta*180/np.pi, upper_theta*180/np.pi, num=data.resonant_ph_flux.shape[2])
+        X1, Y1 = np.meshgrid(X1, Y1)
+        # spatial grid including downsampling
+        N = data._conf["N"]                # [1024, 1024]
+        
+        lower = data._conf["lower"]        # [0, 0]
+        size = data._conf["size"]          # [3.4, 3.14]
+        downsample = data._conf["ph_flux_downsample"]  # 16
+        N_r = N[0] // downsample           # 64
+        N_th = N[1] // downsample          # 64
+        r = np.exp(np.linspace(lower[0], lower[0] + size[0], N_r))
+        theta = np.linspace(lower[1], lower[1] + size[1], N_th)
+        # accessing the specific flux tube to see the specta for
+        R_max_range = kwargs.get('R_max_range', [1,1e6])  # Default range for R_max
+        th_arg = kwargs.get('th_source', np.pi/2)
+        th_thick = kwargs.get('th_thick', np.pi/2)
+        
+        R_max_max = np.max(R_max_range)  # Maximum R_max value
+        R_max_min = np.min(R_max_range)  # Minimum R_max value
+        th_min = th_arg - th_thick/2
+        th_max =  th_arg + th_thick/2
+        def flux_tube_mask(r,theta):
+        # mask for the r,theta values
+            R_max = r/ (np.sin(theta)**2+1e-15)  # r_max = 1/sin(theta)^2  #TODO: Double check
+            return (R_max >= R_max_min) & (R_max <= R_max_max) & (theta >= th_min) & (theta <= th_max)
+            
+        r2d, th2d = np.meshgrid(r, theta, indexing='ij')  # shape (N_r, N_th)
+        mask = flux_tube_mask(r2d, th2d)
+        mask_reshape = mask[:,:, np.newaxis, np.newaxis]  # shape (N_r, N_th, 1, 1)
+        masked_flux = np.where(mask_reshape, data.resonant_ph_flux, 0)
+        flux_data = (1e-13+np.sum(masked_flux, axis=(0, 1))) # shape (N_e, N_th)
+        theta = kwargs.get('theta', [90])
+        if type(theta) is not list:
+            theta = [theta]
+        th_index = []
+        for th in theta:
+            th_index.append(np.argmin(np.abs(Y1[:,0]-th)))
+        labels = kwargs.get('labels', None)
+        colors = kwargs.get('colors', ['blue', 'orange', 'green', 'red', 'purple', 'brown', 'pink', 'gray'])
+    # E_vals is currently in electron mass units (m_e*c^2) which is about 0.511 MeV
+        E_vals = X1[0,:]
+        units = kwargs.get('units', 'm_e*c^2') # default is electron mass units
+        if units == 'keV':
+            E_vals = E_vals * 511 # convert to keV
+        flux_at_th = []
+        for i in th_index:
+            flux_at_th.append(flux_data[i,:])
+        for i in range(len(theta)):
+            label = labels[i] if labels is not None else f"theta = {theta[i]:.2f}\u00B0"
+            if i >= len(colors):
+                raise ValueError("Not enough colors provided for the number of theta values.")
+            ax.plot(E_vals,E_vals*flux_at_th[i],label=label,color=colors[i],linestyle='--')
+        # label = kwargs.get("label", f"theta = {th_arg:.2f}\u00B0")
+        # # flux_data = np.sum(flux_data,axis=0)
+        # ax.plot(E_vals,E_vals*flux_data,label=label,color=color)
+        ax.set_yscale('log')
+        ax.set_xscale('log')
+
+
+    return apl.apt_post(name, func, **kwargs)
+apl.apt_post_types["radial_spectra"] = radial_spectra
+
+def plot_ptc_fieldline_data(data, ptc_ids=None, ax=None, num_ptc=None):
+    """
+    Plot dip line (r/sin(th)^2) for each ptc_id in a single data object, loading at each step.
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    steps = data.ptc_steps
+    if ptc_ids is None:
+        ptc_ids = data.tracked_ptc_id
+    if num_ptc is not None:
+        ptc_ids = np.random.choice(ptc_ids, num_ptc, replace=False)
+    if not isinstance(ptc_ids, (list, np.ndarray)):
+        ptc_ids = [ptc_ids]
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+    # Prepare storage for each ptc_id
+    dip_lines = {ptc_id: [] for ptc_id in ptc_ids}
+
+    for step in steps:
+        data.load(step)
+        for ptc_id in ptc_ids:
+            mask = data.tracked_ptc_id == ptc_id
+            x1 = data.tracked_ptc_x1[mask]
+            x2 = data.tracked_ptc_x2[mask]
+            if len(x1) == 0 or len(x2) == 0:
+                dip_lines[ptc_id].append(np.nan)
+                continue
+            rs = np.exp(x1[0])
+            ths = x2[0]
+            dip_line = rs / np.sin(ths)**2
+            if dip_line > 100:
+                dip_line = np.nan
+            dip_lines[ptc_id].append(dip_line)
+
+    # Now plot for each ptc_id
+    for ptc_id in ptc_ids:
+        ax.plot(steps, dip_lines[ptc_id], label=f"ptc_id {ptc_id}")
+
+    ax.set_xlabel('Step')
+    # ax.set_ylabel('Dip Line r/sin(th)^2')
+    ax.legend()
+    plt.show()
+
+def draw_data_fld_line(name='draw_data_fld_line', **kwargs):
+    def func(self, data, ax, **kwargs_inner):
+        r_max = kwargs_inner.get('r_max', None)
+        fld_val = kwargs_inner.get('fld_val', None)
+        tol = kwargs_inner.get('tol', 1e-2)
+        val_label = kwargs_inner.get('val_label', None)
+        logscale = kwargs_inner.get('logscale', False)
+        colors = kwargs_inner.get('colors', ["red", "blue", "green", "orange", "purple", "brown", "pink", "gray"])
+        # Defensive checks
+        if r_max is None or fld_val is None:
+            raise ValueError("Must provide 'r_max' and 'fld_val' in kwargs.")
+
+        if not isinstance(r_max, (list, np.ndarray)):
+            r_max = [r_max]
+        # th_foot = r_max_to_th_foot(r_max)
+        # fld_line, vertices = data_field_line(data, th_foot, fld_val, tol)
+        
+        # Calculate cumulative distances along the field line
+        # distances = np.linalg.norm(vertices[1:] - vertices[:-1], axis=1)
+        # tot_distance = np.concatenate(([0], np.cumsum(distances)))
+        
+        # xs = np.linspace(0, len(fld_line), len(fld_line))
+        scatter_points = []
+        for i, r in enumerate(r_max):
+            th_foot = r_max_to_th_foot(r)
+            fld_line, vertices = data_field_line(data, th_foot, fld_val, tol)
+
+            distances = np.linalg.norm(vertices[1:] - vertices[:-1], axis=1)
+            tot_distance = np.concatenate(([0], np.cumsum(distances)))
+
+            label = val_label[i] if (val_label and isinstance(val_label, (list, tuple)) and i < len(val_label)) else val_label
+
+            if logscale:
+                ax.set_yscale('log')
+                fld_line = np.abs(fld_line)  # Ensure positive values for log scale
+            
+            sc = ax.scatter(tot_distance, fld_line, c=colors[i], label=label, s=1)
+            scatter_points.append(sc)
+
+        if val_label is not None:
+            ax.legend(loc='center', bbox_to_anchor=(0.5, 0.6))
+
+        return scatter_points
+    
+    return apl.apt_post(name, func, **kwargs)
+apl.apt_post_types['draw_data_fld_line'] = draw_data_fld_line
+def draw_radial_lines(name='draw_radial_lines', **kwargs):
+    def func(self, data, ax, **kwargs_inner):
+        # Get thetas and optional colors/lengths
+        thetas = kwargs_inner.get('thetas', None)  # angles in degrees
+        if thetas is None:
+            raise ValueError("Must provide 'thetas' in kwargs.")
+        thetas = np.radians(thetas)  # convert to radians
+        r_max = kwargs_inner.get('r_max', 10)                        # length of radial lines
+        colors = kwargs_inner.get('colors', ["red", "blue", "green"])
+        linestyle = kwargs_inner.get('linestyle', '--')
+        linewidth = kwargs_inner.get('linewidth', 1)
+
+        if not isinstance(thetas, (list, np.ndarray)):
+            thetas = [thetas]
+        if not isinstance(colors, (list, np.ndarray)):
+            colors = [colors]
+
+        lines = []
+        for i, theta in enumerate(thetas):
+            r = r_max if np.isscalar(r_max) else r_max[i % len(r_max)]
+            color = colors[i % len(colors)]
+            x_line = [0, r * np.sin(theta)]
+            y_line = [0, r * np.cos(theta)]
+            line, = ax.plot(x_line, y_line, color=color, linestyle=linestyle, linewidth=linewidth)
+            lines.append(line)
+
+        return lines
+
+    return apl.apt_post(name, func, **kwargs)
+
+apl.apt_post_types['draw_radial_lines'] = draw_radial_lines
