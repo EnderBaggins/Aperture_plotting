@@ -209,8 +209,10 @@ class DataKerrSchild(DataSph):
       self.__dict__[key] = alpha(self._rv, self._thetav, self.a) * self.Bd2 + gmsqrt(self._rv, self._thetav, self.a) * beta1u(self._rv, self._thetav, self.a) * self.E3
     elif key == "Hd3":
       self.__dict__[key] = alpha(self._rv, self._thetav, self.a) * self.Bd3 - gmsqrt(self._rv, self._thetav, self.a) * beta1u(self._rv, self._thetav, self.a) * self.E2
-    elif key == "sigma": # this is the cold sigma, computed in the KerrSchild coordinate frame
-      self.__dict__[key] = self.B**2 / (self.Rho_p - self.Rho_e + 1e-6)
+    elif key == "sigma": # this is the cold sigma, computed in the FRF
+      # self.__dict__[key] = self.B**2 / (self.Rho_p - self.Rho_e + 1e-6)
+      b2 = self.inner_product_4d_contravariant(self.frf_B, self.frf_B)
+      self.__dict__[key] = b2 / self.n_proper
     elif key == "flux_upper":
       self.__dict__[key] = self.raise_4d_vec(self.flux_lower)
     elif key == "flux_lower":
