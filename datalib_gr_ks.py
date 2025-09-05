@@ -162,6 +162,16 @@ class DataKerrSchild(DataSph):
   def dot_4d(self, vec_upper, vec_lower):
     return np.einsum("ija, ija->ij", vec_upper, vec_lower)
 
+  def inner_product_4d_contravariant(self, vec1, vec2):
+    if not self._metric_ready:
+      self.compute_metrics()
+    return np.einsum("ijab,ija,ijb->ij", self.g_lower, vec1, vec2)
+
+  def inner_product_4d_covariant(self, vec1, vec2):
+    if not self._metric_ready:
+      self.compute_metrics()
+    return np.einsum("ijab,ija,ijb->ij", self.g_upper, vec1, vec2)
+
   def _load_fld_quantity(self, key):
     path = os.path.join(self._path, f"fld.{self._current_fld_step:05d}.h5")
     if key == "fluxB":
@@ -234,7 +244,8 @@ class DataKerrSchild(DataSph):
       # b_upper = np.array([b0, b1, b2, b3])
       self.__dict__[key] = np.stack([b0, b1, b2, b3], axis=-1)
     elif key == "fluid_b_upper":
-      bnorm = np.sqrt(inner_product_4d_contravariant(self.frf_B, self.frf_B, self._rv, self._thetav, self.a))
+      bnorm = np.sqrt(self.inner_product_4d_contravariant(self.frf_B, self.frf_B))
+      # bnorm = np.sqrt(inner_product_4d_contravariant(self.frf_B, self.frf_B, self._rv, self._thetav, self.a))
       self.__dict__[key] = self.frf_B / bnorm[..., np.newaxis]
     elif key == "stress_e":
       stress_e = np.zeros((self.x1.shape[0], self.x1.shape[1], 4, 4))
@@ -278,18 +289,29 @@ class DataKerrSchild(DataSph):
       t_vec = np.array([0, 1, 0, 0])
       e2_vec = np.einsum('abcd,ijb,ijc,d->ija', levi_civita4, self.fluid_u_upper, self.fluid_b_upper, t_vec)
       e2_vec = raise_4d_vec(e2_vec, self._rv, self._thetav, self.a)
-      e2_vec /= np.sqrt(np.abs(inner_product_4d_contravariant(e2_vec, e2_vec, self._rv, self._thetav, self.a)))[..., np.newaxis]
+      e2_vec /= np.sqrt(np.abs(self.inner_product_4d_contravariant(e2_vec, e2_vec)))[..., np.newaxis]
+      # e2_vec /= np.sqrt(np.abs(inner_product_4d_contravariant(e2_vec, e2_vec, self._rv, self._thetav, self.a)))[..., np.newaxis]
       e3_vec = np.einsum('abcd,ijb,ijc,ijd->ija', levi_civita4, self.fluid_u_upper, self.fluid_b_upper, e2_vec)
       e3_vec = raise_4d_vec(e3_vec, self._rv, self._thetav, self.a)
-      e3_vec /= np.sqrt(np.abs(inner_product_4d_contravariant(e3_vec, e3_vec, self._rv, self._thetav, self.a)))[..., np.newaxis]
-      Rs = np.stack([
-          [self.fluid_u_upper[...,0], e2_vec[...,0], e3_vec[...,0], self.fluid_b_upper[...,0]],
-          [self.fluid_u_upper[...,1], e2_vec[...,1], e3_vec[...,1], self.fluid_b_upper[...,1]],
-          [self.fluid_u_upper[...,2], e2_vec[...,2], e3_vec[...,2], self.fluid_b_upper[...,2]],
-          [self.fluid_u_upper[...,3], e2_vec[...,3], e3_vec[...,3], self.fluid_b_upper[...,3]],
-      ], axis=-1) # shape: (4, grid_y, grid_x, 4)
-      Rs = np.moveaxis(Rs, 0, -2)  # shape: (grid_y, grid_x, 4, 4)
-      Rs = np.moveaxis(Rs, -2, -1)  # shape: (grid_y, grid_x, 4, 4)
+      e3_vec /= np.sqrt(np.abs(self.inner_product_4d_contravariant(e3_vec, e3_vec)))[..., np.newaxis]
+      # e3_vec /= np.sqrt(np.abs(inner_product_4d_contravariant(e3_vec, e3_vec, self._rv, self._thetav, self.a)))[..., np.newaxis]
+      Rs = np.zeros((self.x1.shape[0], self.x1.shape[1], 4, 4))
+      Rs[:, :, 0, 0] = self.fluid_u_upper[..., 0]
+      Rs[:, :, 0, 1] = e2_vec[..., 0]
+      Rs[:, :, 0, 2] = e3_vec[..., 0]
+      Rs[:, :, 0, 3] = self.fluid_b_upper[..., 0]
+      Rs[:, :, 1, 0] = self.fluid_u_upper[..., 1]
+      Rs[:, :, 1, 1] = e2_vec[..., 1]
+      Rs[:, :, 1, 2] = e3_vec[..., 1]
+      Rs[:, :, 1, 3] = self.fluid_b_upper[..., 1]
+      Rs[:, :, 2, 0] = self.fluid_u_upper[..., 2]
+      Rs[:, :, 2, 1] = e2_vec[..., 2]
+      Rs[:, :, 2, 2] = e3_vec[..., 2]
+      Rs[:, :, 2, 3] = self.fluid_b_upper[..., 2]
+      Rs[:, :, 3, 0] = self.fluid_u_upper[..., 3]
+      Rs[:, :, 3, 1] = e2_vec[..., 3]
+      Rs[:, :, 3, 2] = e3_vec[..., 3]
+      Rs[:, :, 3, 3] = self.fluid_b_upper[..., 3]
       self.__dict__[key] = Rs
     elif key == "frf_T_munu":
       T_munu = self.stress_e + self.stress_p
@@ -305,7 +327,8 @@ class DataKerrSchild(DataSph):
     elif key == "pressure_perp":
       self.__dict__[key] = (self.frf_T_munu[:, :, 1, 1] + self.frf_T_munu[:, :, 2, 2]) / 2.0
     elif key == "plasma_beta":
-      self.__dict__[key] = self.plasma_temp * self.n_proper / (0.5 * inner_product_4d_contravariant(self.frf_B, self.frf_B, self._rv, self._thetav, self.a) + 1e-6)
+      self.__dict__[key] = self.plasma_temp * self.n_proper / (0.5 * self.inner_product_4d_contravariant(self.frf_B, self.frf_B) + 1e-6)
+      # self.__dict__[key] = self.plasma_temp * self.n_proper / (0.5 * inner_product_4d_contravariant(self.frf_B, self.frf_B, self._rv, self._thetav, self.a) + 1e-6)
     # elif key
     # elif key == "J":
     #   self._J = np.sqrt(self.J1 * self.J1 + self.J2 * self.J2 + self.J3 * self.J3)
