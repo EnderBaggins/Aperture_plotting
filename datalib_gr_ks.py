@@ -122,7 +122,7 @@ class DataKerrSchild(DataSph):
     self.extra_fld_keys = ["fluxB", "Dd1", "Dd2", "Dd3", "D", "Bd1", "Bd2", "Bd3", "B", "Ed1", "Ed2", "Ed3", "Hd1", "Hd2", "Hd3",
                            "sigma", "flux_upper",
                            "flux_lower", "n_proper", "fluid_u_upper", "fluid_u_lower", "fluid_b_upper", "stress_e", "stress_p", "frf_transform", 
-                           "frf_T_munu", "plasma_temp", "pressure_para", "pressure_perp", "plasma_beta", "frf_B"]
+                           "frf_transform_inv", "frf_T_munu", "plasma_temp", "pressure_para", "pressure_perp", "plasma_beta", "frf_B"]
     self.compute_metrics()
     self.reload()
 
@@ -298,6 +298,7 @@ class DataKerrSchild(DataSph):
       e3_vec /= np.sqrt(np.abs(self.inner_product_4d_contravariant(e3_vec, e3_vec)))[..., np.newaxis]
       # e3_vec /= np.sqrt(np.abs(inner_product_4d_contravariant(e3_vec, e3_vec, self._rv, self._thetav, self.a)))[..., np.newaxis]
       Rs = np.zeros((self.x1.shape[0], self.x1.shape[1], 4, 4))
+      # This is dx/dx_hat
       Rs[:, :, 0, 0] = self.fluid_u_upper[..., 0]
       Rs[:, :, 0, 1] = e2_vec[..., 0]
       Rs[:, :, 0, 2] = e3_vec[..., 0]
@@ -315,6 +316,29 @@ class DataKerrSchild(DataSph):
       Rs[:, :, 3, 2] = e3_vec[..., 3]
       Rs[:, :, 3, 3] = self.fluid_b_upper[..., 3]
       self.__dict__[key] = Rs
+    elif key == "frf_transform_inv":
+      fluid_b_lower = self.lower_4d_vec(self.fluid_b_upper)
+      e2_vec_lower = self.lower_4d_vec(self.frf_transform[:, :, :, 1])
+      e3_vec_lower = self.lower_4d_vec(self.frf_transform[:, :, :, 2])
+      Rs_inv = np.zeros((self.x1.shape[0], self.x1.shape[1], 4, 4))
+      # This is dx_hat/dx
+      Rs_inv[:, :, 0, 0] = self.fluid_u_lower[..., 0]
+      Rs_inv[:, :, 0, 1] = self.fluid_u_lower[..., 1]
+      Rs_inv[:, :, 0, 2] = self.fluid_u_lower[..., 2]
+      Rs_inv[:, :, 0, 3] = self.fluid_u_lower[..., 3]
+      Rs_inv[:, :, 1, 0] = e2_vec_lower[..., 0]
+      Rs_inv[:, :, 1, 1] = e2_vec_lower[..., 1]
+      Rs_inv[:, :, 1, 2] = e2_vec_lower[..., 2]
+      Rs_inv[:, :, 1, 3] = e2_vec_lower[..., 3]
+      Rs_inv[:, :, 2, 0] = e3_vec_lower[..., 0]
+      Rs_inv[:, :, 2, 1] = e3_vec_lower[..., 1]
+      Rs_inv[:, :, 2, 2] = e3_vec_lower[..., 2]
+      Rs_inv[:, :, 2, 3] = e3_vec_lower[..., 3]
+      Rs_inv[:, :, 3, 0] = fluid_b_lower[..., 0]
+      Rs_inv[:, :, 3, 1] = fluid_b_lower[..., 1]
+      Rs_inv[:, :, 3, 2] = fluid_b_lower[..., 2]
+      Rs_inv[:, :, 3, 3] = fluid_b_lower[..., 3]
+      self.__dict__[key] = Rs_inv
     elif key == "frf_T_munu":
       T_munu = self.stress_e + self.stress_p
       T_munu_frf = np.einsum('...ki,...lj,...kl->...ij', self.frf_transform, self.frf_transform, T_munu)
