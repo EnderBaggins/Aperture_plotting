@@ -110,21 +110,58 @@ for i in range(4):
                 else:
                     levi_civita4[i, j, k, l] = -1
 
+def reduce_by_tiles_reduceat(arr, tile_size):
+    N = arr.shape[0]
+    # Sum along rows first
+    row_sums = np.add.reduceat(arr, np.arange(0, N, tile_size), axis=0)
+    # Then sum along columns
+    return np.add.reduceat(row_sums, np.arange(0, N, tile_size), axis=1)
+
 
 class DataKerrSchild(DataSph):
   _mesh_loaded = False
   _metric_ready = False
 
-  def __init__(self, path):
+  def __init__(self, path, tile_size=4):
     super().__init__(path)
     self.a = self._conf["bh_spin"]
     self.rH = rs_o(self.a)
-    self.extra_fld_keys = ["fluxB", "Dd1", "Dd2", "Dd3", "D", "Bd1", "Bd2", "Bd3", "B", "Ed1", "Ed2", "Ed3", "Hd1", "Hd2", "Hd3",
-                           "sigma", "flux_upper",
-                           "flux_lower", "n_proper", "fluid_u_upper", "fluid_u_lower", "fluid_b_upper", "stress_e", "stress_p", "frf_transform", 
-                           "frf_transform_inv", "frf_T_munu", "plasma_temp", "pressure_para", "pressure_perp", "plasma_beta", "frf_B"]
+    self.extra_fld_keys = ["fluxB", "Dd1", "Dd2", "Dd3", "D", "Bd1", "Bd2", "Bd3", "B", 
+                           "Ed1", "Ed2", "Ed3", "Hd1", "Hd2", "Hd3",
+                           "sigma", "flux_upper", "flux_lower", "n_proper", 
+                           "fluid_u_upper", "fluid_u_lower", "fluid_b_upper", 
+                           "stress_e", "stress_p", "frf_transform", "frf_transform_inv", "frf_T_munu",
+                           "plasma_temp", "pressure_para", "pressure_perp", "plasma_beta", "frf_B"
+                           "stress_reduced", "flux_upper_reduced", "flux_lower_reduced", "n_proper_reduced",
+                           "fluid_u_upper_reduced", "fluid_u_lower_reduced", "fluid_b_upper_reduced"]
+    self.tile_size = tile_size
+    self.reduced_shape = (self.x1.shape[0] // tile_size, self.x1.shape[1] // tile_size)
+    self._rs_reduced = np.exp(
+      np.linspace(
+        0,
+        self._conf["size"][0],
+        self._conf["N"][0]
+        // self._conf["downsample"] // self.tile_size,
+      ) + self._conf["lower"][0]
+    )
+    self._ths_reduced = np.linspace(
+          0,
+          self._conf["size"][1],
+          self._conf["N"][1] // self._conf["downsample"] // self.tile_size,
+        ) + self._conf["lower"][1]
+
+    self._rv_reduced, self._thv_reduced = np.meshgrid(self._rs_reduced, self._ths_reduced)
+    self.x1_reduced = self._rv_reduced * np.sin(self._thv_reduced)
+    self.x2_reduced = self._rv_reduced * np.cos(self._thv_reduced)
     self.compute_metrics()
     self.reload()
+
+
+  def save_diagnostics(self, name, array):
+    path = os.path.join(self._path, f"diagnostics.{self._current_fld_step:05d}.h5")
+    with h5py.File(path, "a") as f:
+      if not name in f:
+        f[name] = array
 
   def compute_metrics(self):
     if self._metric_ready:
@@ -147,6 +184,27 @@ class DataKerrSchild(DataSph):
     self.g_lower[:, :, 2, 2] = gd22(self._rv, self._thetav, self.a)
     self.g_lower[:, :, 3, 3] = gd33(self._rv, self._thetav, self.a)
     self.g_lower[:, :, 1, 3] = self.g_lower[:, :, 3, 1] = gd13(self._rv, self._thetav, self.a)
+
+    self.g_upper_reduced = np.zeros((self.reduced_shape[0], self.reduced_shape[1], 4, 4))
+    self.g_lower_reduced = np.zeros((self.reduced_shape[0], self.reduced_shape[1], 4, 4))
+
+    self.g_upper_reduced[:, :, 0, 0] = gu00(self._rv_reduced, self._thv_reduced, self.a)
+    self.g_upper_reduced[:, :, 0, 1] = self.g_upper_reduced[:, :, 1, 0] = gu01(self._rv_reduced, self._thv_reduced, self.a)
+    self.g_upper_reduced[:, :, 1, 1] = gu11(self._rv_reduced, self._thv_reduced, self.a)
+    self.g_upper_reduced[:, :, 2, 2] = gu22(self._rv_reduced, self._thv_reduced, self.a)
+    self.g_upper_reduced[:, :, 3, 3] = gu33(self._rv_reduced, self._thv_reduced, self.a)
+    self.g_upper_reduced[:, :, 1, 3] = self.g_upper_reduced[:, :, 3, 1] = gu13(self._rv_reduced, self._thv_reduced, self.a)
+
+    self.g_lower_reduced[:, :, 0, 0] = gd00(self._rv_reduced, self._thv_reduced, self.a)
+    self.g_lower_reduced[:, :, 0, 1] = self.g_lower_reduced[:, :, 1, 0] = gd01(self._rv_reduced, self._thv_reduced, self.a)
+    self.g_lower_reduced[:, :, 0, 3] = self.g_lower_reduced[:, :, 3, 0] = gd03(self._rv_reduced, self._thv_reduced, self.a)
+    self.g_lower_reduced[:, :, 1, 1] = gd11(self._rv_reduced, self._thv_reduced, self.a)
+    self.g_lower_reduced[:, :, 2, 2] = gd22(self._rv_reduced, self._thv_reduced, self.a)
+    self.g_lower_reduced[:, :, 3, 3] = gd33(self._rv_reduced, self._thv_reduced, self.a)
+    self.g_lower_reduced[:, :, 1, 3] = self.g_lower_reduced[:, :, 3, 1] = gd13(self._rv_reduced, self._thv_reduced, self.a)
+
+    self.sqrt_g = gsqrt(self._rv, self._thetav, self.a)
+    self.sqrt_g_reduced = gsqrt(self._rv_reduced, self._thv_reduced, self.a)
     self._metric_ready = True
 
   def raise_4d_vec(self, vec_lower):
@@ -287,6 +345,18 @@ class DataKerrSchild(DataSph):
       #                     ], axis=-1)  # shape: (4, 4, grid_y, grid_x)
       # stress_p = np.moveaxis(stress_p, 0, -2)  # shape: (grid_y, grid_x, 4, 4)
       self.__dict__[key] = stress_p
+    elif key == "stress_reduced":
+      stress = (self.stress_e + self.stress_p) * self.sqrt_g[..., np.newaxis, np.newaxis]
+      stress_reduced = reduce_by_tiles_reduceat(stress, self.tile_size) / self.sqrt_g_reduced[..., np.newaxis, np.newaxis] / self.tile_size**2
+      self.__dict__[key] = stress_reduced
+    elif key == "flux_lower_reduced":
+      flux = self.flux_lower * self.sqrt_g[..., np.newaxis]
+      flux_reduced = reduce_by_tiles_reduceat(flux, self.tile_size) / self.sqrt_g_reduced[..., np.newaxis] / self.tile_size**2
+      self.__dict__[key] = flux_reduced
+    elif key == "flux_upper_reduced":
+      self.__dict__[key] = np.einsum('ijab,ijb->ija', self.g_upper_reduced, self.flux_lower_reduced)
+    elif key == "n_proper_reduced":
+      self.__dict__[key] = np.sqrt(np.abs(self.dot_4d(self.flux_upper_reduced, self.flux_lower_reduced)))
     elif key == "frf_transform":
       t_vec = np.array([0, 1, 0, 0])
       e2_vec = np.einsum('abcd,ijb,ijc,d->ija', levi_civita4, self.fluid_u_upper, self.fluid_b_upper, t_vec)
