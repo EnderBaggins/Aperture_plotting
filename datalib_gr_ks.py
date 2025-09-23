@@ -576,6 +576,30 @@ def inner_product_4d_covariant(v1, v2, r, th, a):
           g22 * v1[...,2] * v2[...,2] +
           g33 * v1[...,3] * v2[...,3])
 
+# Inner product of two 3d contravariant vectors
+def inner_product_3d_contravariant(v1, v2, r, th, a):
+  g11 = gmd11(r, th, a)
+  g13 = gmd13(r, th, a)
+  g22 = gmd22(r, th, a)
+  g33 = gmd33(r, th, a)
+  return (g11 * v1[...,0] * v2[...,0] +
+          g22 * v1[...,1] * v2[...,1] +
+          g33 * v1[...,2] * v2[...,2]
+          + 2.0 * g13 * v1[...,0] * v2[...,2]
+         )
+
+# Inner product of two 3d covariant vectors
+def inner_product_3d_covariant(v1, v2, r, th, a):
+  g11 = gmu11(r, th, a)
+  g13 = gmu13(r, th, a)
+  g22 = gmu22(r, th, a)
+  g33 = gmu33(r, th, a)
+  return (g11 * v1[...,0] * v2[...,0] +
+          g22 * v1[...,1] * v2[...,1] +
+          g33 * v1[...,2] * v2[...,2]
+          + 2.0 * g13 * v1[...,0] * v2[...,2]
+         )
+
 # Raise a 4d covariant vector to a contravariant vector 
 def raise_4d_vec(v, r, th, a):
   g00 = gu00(r, th, a)
@@ -604,3 +628,59 @@ def lower_4d_vec(v, r, th, a):
   l2 = g22 * v[...,2]
   l3 = g13 * v[...,1] + g33 * v[...,3] + g03 * v[...,0]
   return np.stack([l0, l1, l2, l3], axis=-1)
+
+# Calculate T^mu_nu for the electromagnetic field
+def calc_Tmunu_em(data):
+    Dru  = data.E1
+    Dthu = data.E2
+    Dphu = data.E3
+    Bru  = data.B1
+    Bthu = data.B2
+    Bphu = data.B3
+
+    Erd  = data.Ed1
+    Ethd = data.Ed2
+    Ephd = data.Ed3
+    Hrd  = data.Hd1
+    Hthd = data.Hd2
+    Hphd = data.Hd3
+
+    DdotE = Dru*Erd + Dthu*Ethd + Dphu*Ephd
+    BdotH = Bru*Hrd + Bthu*Hthd + Bphu*Hphd
+
+    alpha = ks.alpha(data._rv, data._thetav, data.a)
+    sgam  = ks.gmsqrt(data._rv, data._thetav, data.a)
+
+    Tmuunud = np.zeros( (Dru.shape[0], Dru.shape[1], 4, 4) )
+
+    # Use the formulae in Komissarov 2004, MNRAS 350 427
+    # T^t_t
+    Tmuunud[:,:,0,0] = -1/(2*alpha) * (DdotE + BdotH)
+
+    # T^i_t
+    ixnz = np.where(sgam > 0.0)
+    Tmuunud[:,:,1,0][ixnz] = -1.0/(sgam*alpha)[ixnz] * (Ethd*Hphd - Ephd*Hthd)[ixnz]
+    Tmuunud[:,:,2,0][ixnz] =  1.0/(sgam*alpha)[ixnz] * (Erd *Hphd - Ephd*Hrd )[ixnz]
+    Tmuunud[:,:,3,0][ixnz] = -1.0/(sgam*alpha)[ixnz] * (Erd *Hthd - Ethd*Hrd )[ixnz]
+
+    # T^t_i
+    Tmuunud[:,:,0,1] =  sgam/alpha * (Dthu*Bphu - Dphu*Bthu)
+    Tmuunud[:,:,0,2] = -sgam/alpha * (Dru *Bphu - Dphu*Bru)
+    Tmuunud[:,:,0,3] =  sgam/alpha * (Dru *Bthu - Dthu*Bru)
+
+    # T^i_j
+    # Diagonal terms
+    Tmuunud[:,:,1,1] = -1.0/alpha * (Dru *Erd  + Bru *Hrd ) - Tmuunud[:,:,0,0]
+    Tmuunud[:,:,2,2] = -1.0/alpha * (Dthu*Ethd + Bthu*Hthd) - Tmuunud[:,:,0,0]
+    Tmuunud[:,:,3,3] = -1.0/alpha * (Dphu*Ephd + Bphu*Hphd) - Tmuunud[:,:,0,0]
+    # Off-diagonal terms
+    Tmuunud[:,:,1,2] = -1.0/alpha * (Dru *Ethd + Bru *Hthd)
+    Tmuunud[:,:,1,3] = -1.0/alpha * (Dru *Ephd + Bru *Hphd)
+    Tmuunud[:,:,2,3] = -1.0/alpha * (Dthu*Ephd + Bthu*Hphd)
+    Tmuunud[:,:,2,1] = -1.0/alpha * (Dthu*Erd  + Bthu*Hrd )
+    Tmuunud[:,:,3,1] = -1.0/alpha * (Dphu*Erd  + Bphu*Hrd )
+    Tmuunud[:,:,3,2] = -1.0/alpha * (Dphu*Ethd + Bphu*Hthd)
+
+    return Tmuunud
+
+
