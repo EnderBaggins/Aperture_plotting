@@ -131,7 +131,7 @@ class DataKerrSchild(DataSph):
                            "sigma", "flux_upper", "flux_lower", "n_proper", 
                            "fluid_u_upper", "fluid_u_lower", "fluid_b_upper", 
                            "stress_e", "stress_p", "frf_transform", "frf_transform_inv", "frf_T_munu",
-                           "plasma_temp", "pressure_para", "pressure_perp", "plasma_beta", "frf_B"
+                           "plasma_temp", "pressure_para", "pressure_perp", "plasma_beta", "frf_B",
                            "stress_reduced", "flux_upper_reduced", "flux_lower_reduced", "n_proper_reduced",
                            "fluid_u_upper_reduced", "fluid_u_lower_reduced", "fluid_b_upper_reduced"]
     self.tile_size = tile_size
@@ -517,6 +517,30 @@ def inner_product_4d_covariant(v1, v2, r, th, a):
           2 * g13 * v1[...,1] * v2[...,3] +
           g22 * v1[...,2] * v2[...,2] +
           g33 * v1[...,3] * v2[...,3])
+
+# Inner product of two 3d contravariant vectors
+def inner_product_3d_contravariant(v1, v2, r, th, a):
+  g11 = gmd11(r, th, a)
+  g13 = gmd13(r, th, a)
+  g22 = gmd22(r, th, a)
+  g33 = gmd33(r, th, a)
+  return (g11 * v1[...,0] * v2[...,0] +
+          g22 * v1[...,1] * v2[...,1] +
+          g33 * v1[...,2] * v2[...,2]
+          + 2.0 * g13 * v1[...,0] * v2[...,2]
+         )
+
+# Inner product of two 3d covariant vectors
+def inner_product_3d_covariant(v1, v2, r, th, a):
+  g11 = gmu11(r, th, a)
+  g13 = gmu13(r, th, a)
+  g22 = gmu22(r, th, a)
+  g33 = gmu33(r, th, a)
+  return (g11 * v1[...,0] * v2[...,0] +
+          g22 * v1[...,1] * v2[...,1] +
+          g33 * v1[...,2] * v2[...,2]
+          + 2.0 * g13 * v1[...,0] * v2[...,2]
+         )
 
 # Raise a 4d covariant vector to a contravariant vector 
 def raise_4d_vec(v, r, th, a):
