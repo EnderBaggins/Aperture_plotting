@@ -131,9 +131,9 @@ class DataKerrSchild(DataSph):
                            "sigma", "flux_upper", "flux_lower", "n_proper", 
                            "fluid_u_upper", "fluid_u_lower", "fluid_b_upper", 
                            "stress_e", "stress_p", "frf_transform", "frf_transform_inv", "frf_T_munu",
-                           "plasma_temp", "pressure_para", "pressure_perp", "plasma_beta", "frf_B"
+                           "plasma_temp", "pressure_para", "pressure_perp", "plasma_beta", "frf_B",
                            "stress_reduced", "flux_upper_reduced", "flux_lower_reduced", "n_proper_reduced",
-                           "fluid_u_upper_reduced", "fluid_u_lower_reduced", "fluid_b_upper_reduced"]
+                           "fluid_u_upper_reduced", "fluid_u_lower_reduced", "fluid_b_upper_reduced", "frf_B_reduced", "frf_transform_reduced", "frf_T_munu_reduced"]
     self.tile_size = tile_size
     self.reduced_shape = (self.x1.shape[0] // tile_size, self.x1.shape[1] // tile_size)
     self._rs_reduced = np.exp(
@@ -205,6 +205,8 @@ class DataKerrSchild(DataSph):
 
     self.sqrt_g = gsqrt(self._rv, self._thetav, self.a)
     self.sqrt_g_reduced = gsqrt(self._rv_reduced, self._thv_reduced, self.a)
+    self.sqrt_gamma = gmsqrt(self._rv, self._thetav, self.a)
+    self.sqrt_gamma_reduced = gmsqrt(self._rv_reduced, self._thv_reduced, self.a)
     self._metric_ready = True
 
   def raise_4d_vec(self, vec_lower):
@@ -303,10 +305,27 @@ class DataKerrSchild(DataSph):
       b3 = -u_lower[...,0] * B[...,3] / alpha_val - (u_lower[...,1] * E[...,2] - u_lower[...,2] * E[...,1]) / alpha_val / sqrt_gm
       # b_upper = np.array([b0, b1, b2, b3])
       self.__dict__[key] = np.stack([b0, b1, b2, b3], axis=-1)
+    elif key == "frf_B_reduced":
+      B = np.stack([np.zeros_like(self.B1), self.B1, self.B2, self.B3], axis=-1)
+      B *= self.sqrt_gamma[..., np.newaxis]
+      B_reduced = reduce_by_tiles_reduceat(B, self.tile_size) / self.sqrt_gamma_reduced[..., np.newaxis] / self.tile_size**2
+      E = np.stack([np.zeros_like(self.Ed1), self.Ed1, self.Ed2, self.Ed3], axis=-1)
+      E *= self.sqrt_gamma[..., np.newaxis]
+      E_reduced = reduce_by_tiles_reduceat(E, self.tile_size) / self.sqrt_gamma_reduced[..., np.newaxis] / self.tile_size**2
+      u_lower = self.fluid_u_lower_reduced
+      alpha_val = alpha(self._rv_reduced, self._thv_reduced, self.a)
+      b0 = (u_lower[...,1] * B_reduced[...,1] + u_lower[...,2] * B_reduced[...,2] + u_lower[...,3] * B_reduced[...,3]) / alpha_val
+      b1 = -u_lower[...,0] * B_reduced[...,1] / alpha_val - (u_lower[...,2] * E_reduced[...,3] - u_lower[...,3] * E_reduced[...,2]) / alpha_val / self.sqrt_gamma_reduced
+      b2 = -u_lower[...,0] * B_reduced[...,2] / alpha_val - (u_lower[...,3] * E_reduced[...,1] - u_lower[...,1] * E_reduced[...,3]) / alpha_val / self.sqrt_gamma_reduced
+      b3 = -u_lower[...,0] * B_reduced[...,3] / alpha_val - (u_lower[...,1] * E_reduced[...,2] - u_lower[...,2] * E_reduced[...,1]) / alpha_val / self.sqrt_gamma_reduced
+      self.__dict__[key] = np.stack([b0, b1, b2, b3], axis=-1)
     elif key == "fluid_b_upper":
       bnorm = np.sqrt(self.inner_product_4d_contravariant(self.frf_B, self.frf_B))
       # bnorm = np.sqrt(inner_product_4d_contravariant(self.frf_B, self.frf_B, self._rv, self._thetav, self.a))
       self.__dict__[key] = self.frf_B / bnorm[..., np.newaxis]
+    elif key == "fluid_b_upper_reduced":
+      bnorm = np.sqrt(np.einsum("ijab,ija,ijb->ij", self.g_lower_reduced, self.frf_B_reduced, self.frf_B_reduced))
+      self.__dict__[key] = self.frf_B_reduced / bnorm[..., np.newaxis]
     elif key == "stress_e":
       stress_e = np.zeros((self.x1.shape[0], self.x1.shape[1], 4, 4))
       stress_e[:, :, 0, 0] = self.stress_e00
@@ -357,6 +376,16 @@ class DataKerrSchild(DataSph):
       self.__dict__[key] = np.einsum('ijab,ijb->ija', self.g_upper_reduced, self.flux_lower_reduced)
     elif key == "n_proper_reduced":
       self.__dict__[key] = np.sqrt(np.abs(self.dot_4d(self.flux_upper_reduced, self.flux_lower_reduced)))
+    elif key == "fluid_u_lower_reduced":
+      indices = np.where(self.n_proper_reduced > 0)
+      u_lower = np.copy(self.flux_lower_reduced)
+      u_lower[indices] = self.flux_lower_reduced[indices] / self.n_proper_reduced[indices][..., np.newaxis]
+      self.__dict__[key] = u_lower
+    elif key == "fluid_u_upper_reduced":
+      indices = np.where(self.n_proper_reduced > 0)
+      u_upper = np.copy(self.flux_upper_reduced)
+      u_upper[indices] = self.flux_upper_reduced[indices] / self.n_proper_reduced[indices][..., np.newaxis]
+      self.__dict__[key] = u_upper
     elif key == "frf_transform":
       t_vec = np.array([0, 1, 0, 0])
       e2_vec = np.einsum('abcd,ijb,ijc,d->ija', levi_civita4, self.fluid_u_upper, self.fluid_b_upper, t_vec)
@@ -386,6 +415,33 @@ class DataKerrSchild(DataSph):
       Rs[:, :, 3, 2] = e3_vec[..., 3]
       Rs[:, :, 3, 3] = self.fluid_b_upper[..., 3]
       self.__dict__[key] = Rs
+    elif key == "frf_transform_reduced":
+      t_vec = np.array([0, 1, 0, 0])
+      e2_vec = np.einsum('abcd,ijb,ijc,d->ija', levi_civita4, self.fluid_u_upper_reduced, self.fluid_b_upper_reduced, t_vec)
+      e2_vec = np.einsum('ijab,ijb->ija', self.g_upper_reduced, e2_vec)
+      e2_vec /= np.sqrt(np.abs(np.einsum('ijab,ija,ijb->ij', self.g_lower_reduced, e2_vec, e2_vec)))[..., np.newaxis]
+      e3_vec = np.einsum('abcd,ijb,ijc,ijd->ija', levi_civita4, self.fluid_u_upper_reduced, self.fluid_b_upper_reduced, e2_vec)
+      e3_vec = np.einsum('ijab,ijb->ija', self.g_upper_reduced, e3_vec)
+      e3_vec /= np.sqrt(np.abs(np.einsum('ijab,ija,ijb->ij', self.g_lower_reduced, e3_vec, e3_vec)))[..., np.newaxis]
+      Rs = np.zeros((self.x1_reduced.shape[0], self.x1_reduced.shape[1], 4, 4))
+      # This is dx/dx_hat
+      Rs[:, :, 0, 0] = self.fluid_u_upper_reduced[..., 0]
+      Rs[:, :, 0, 1] = e2_vec[..., 0]
+      Rs[:, :, 0, 2] = e3_vec[..., 0]
+      Rs[:, :, 0, 3] = self.fluid_b_upper_reduced[..., 0]
+      Rs[:, :, 1, 0] = self.fluid_u_upper_reduced[..., 1]
+      Rs[:, :, 1, 1] = e2_vec[..., 1]
+      Rs[:, :, 1, 2] = e3_vec[..., 1]
+      Rs[:, :, 1, 3] = self.fluid_b_upper_reduced[..., 1]
+      Rs[:, :, 2, 0] = self.fluid_u_upper_reduced[..., 2]
+      Rs[:, :, 2, 1] = e2_vec[..., 2]
+      Rs[:, :, 2, 2] = e3_vec[..., 2]
+      Rs[:, :, 2, 3] = self.fluid_b_upper_reduced[..., 2]
+      Rs[:, :, 3, 0] = self.fluid_u_upper_reduced[..., 3]
+      Rs[:, :, 3, 1] = e2_vec[..., 3]
+      Rs[:, :, 3, 2] = e3_vec[..., 3]
+      Rs[:, :, 3, 3] = self.fluid_b_upper_reduced[..., 3]
+      self.__dict__[key] = Rs
     elif key == "frf_transform_inv":
       fluid_b_lower = self.lower_4d_vec(self.fluid_b_upper)
       e2_vec_lower = self.lower_4d_vec(self.frf_transform[:, :, :, 1])
@@ -413,6 +469,8 @@ class DataKerrSchild(DataSph):
       T_munu = self.stress_e + self.stress_p
       T_munu_frf = np.einsum('...ki,...lj,...kl->...ij', self.frf_transform, self.frf_transform, T_munu)
       self.__dict__[key] = T_munu_frf
+    elif key == "frf_T_munu_reduced":
+      self.__dict__[key] = np.einsum('...ki,...lj,...kl->...ij', self.frf_transform_reduced, self.frf_transform_reduced, self.stress_reduced)
     elif key == "plasma_temp":
       indices = np.where(self.n_proper > 0)
       pressure = np.zeros_like(self.n_proper)
