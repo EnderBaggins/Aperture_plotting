@@ -111,11 +111,12 @@ for i in range(4):
                     levi_civita4[i, j, k, l] = -1
 
 def reduce_by_tiles_reduceat(arr, tile_size):
-    N = arr.shape[0]
+    N1 = arr.shape[0]
+    N2 = arr.shape[1]
     # Sum along rows first
-    row_sums = np.add.reduceat(arr, np.arange(0, N, tile_size), axis=0)
+    row_sums = np.add.reduceat(arr, np.arange(0, N1, tile_size), axis=0)
     # Then sum along columns
-    return np.add.reduceat(row_sums, np.arange(0, N, tile_size), axis=1)
+    return np.add.reduceat(row_sums, np.arange(0, N2, tile_size), axis=1)
 
 
 class DataKerrSchild(DataSph):
@@ -133,7 +134,9 @@ class DataKerrSchild(DataSph):
                            "stress_e", "stress_p", "frf_transform", "frf_transform_inv", "frf_T_munu",
                            "plasma_temp", "pressure_para", "pressure_perp", "plasma_beta", "frf_B",
                            "stress_reduced", "flux_upper_reduced", "flux_lower_reduced", "n_proper_reduced",
-                           "fluid_u_upper_reduced", "fluid_u_lower_reduced", "fluid_b_upper_reduced", "frf_B_reduced", "frf_transform_reduced", "frf_T_munu_reduced"]
+                           "fluid_u_upper_reduced", "fluid_u_lower_reduced", "fluid_b_upper_reduced", "frf_B_reduced", 
+                           "frf_transform_reduced", "frf_T_munu_reduced", "plasma_temp_reduced", 
+                           "pressure_para_reduced", "pressure_perp_reduced", "plasma_beta_reduced"]
     self.tile_size = tile_size
     self.reduced_shape = (self.x1.shape[0] // tile_size, self.x1.shape[1] // tile_size)
     self._rs_reduced = np.exp(
@@ -476,12 +479,24 @@ class DataKerrSchild(DataSph):
       pressure = np.zeros_like(self.n_proper)
       pressure[indices] = (self.frf_T_munu[:, :, 1, 1] + self.frf_T_munu[:, :, 2, 2] + self.frf_T_munu[:, :, 3, 3])[indices] / 3.0
       self.__dict__[key] = pressure / self.n_proper
+    elif key == "plasma_temp_reduced":
+      indices = np.where(self.n_proper_reduced > 0)
+      pressure_reduced = np.zeros_like(self.n_proper_reduced)
+      pressure_reduced[indices] = (self.frf_T_munu_reduced[:, :, 1, 1] + self.frf_T_munu_reduced[:, :, 2, 2] + self.frf_T_munu_reduced[:, :, 3, 3])[indices] / 3.0
+      self.__dict__[key] = pressure_reduced / self.n_proper_reduced
     elif key == "pressure_para":
       self.__dict__[key] = self.frf_T_munu[:, :, 3, 3]
+    elif key == "pressure_para_reduced":
+      self.__dict__[key] = self.frf_T_munu_reduced[:, :, 3, 3]
     elif key == "pressure_perp":
       self.__dict__[key] = (self.frf_T_munu[:, :, 1, 1] + self.frf_T_munu[:, :, 2, 2]) / 2.0
+    elif key == "pressure_perp_reduced":
+      self.__dict__[key] = (self.frf_T_munu_reduced[:, :, 1, 1] + self.frf_T_munu_reduced[:, :, 2, 2]) / 2.0
     elif key == "plasma_beta":
       self.__dict__[key] = self.plasma_temp * self.n_proper / (0.5 * self.inner_product_4d_contravariant(self.frf_B, self.frf_B) + 1e-6)
+    elif key == "plasma_beta_reduced":
+      b2_reduced = np.einsum('ijab,ija,ijb->ij', self.g_lower_reduced, self.frf_B_reduced, self.frf_B_reduced)
+      self.__dict__[key] = self.plasma_temp_reduced * self.n_proper_reduced / (0.5 * b2_reduced + 1e-6)
       # self.__dict__[key] = self.plasma_temp * self.n_proper / (0.5 * inner_product_4d_contravariant(self.frf_B, self.frf_B, self._rv, self._thetav, self.a) + 1e-6)
     # elif key
     # elif key == "J":
