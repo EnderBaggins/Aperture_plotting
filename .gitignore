@@ -11,3 +11,4 @@ notes
 venv
 *.pdf
 *.csv
+*.venv
