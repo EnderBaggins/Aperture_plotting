@@ -12,3 +12,13 @@ venv
 *.pdf
 *.csv
 *.venv
+notes.txt
+plotting_old.py
+temp_function.py
+matplotlib.instructions.md
+energy_html_dashboard.py
+explanation_of_files
+extensions.txt
+energy_explorer.html
+magnetar.ipynb
+TODO.txt
