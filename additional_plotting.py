@@ -1,4 +1,4 @@
-import plotting as apl
+import plotting_old as apl
 import matplotlib.pyplot as plt 
 import numpy as np
 import os
@@ -353,8 +353,9 @@ def draw_ptc_paths(name='draw_ptc_paths', **kwargs):
     def func(self, data, ax, **kwargs):
         step = kwargs.pop('step', 0)
         num = kwargs.pop('num', 2)
+
         if not hasattr(self, 'ptc_id_found'):
-            ids = get_ptc_id(data, step, num, **kwargs)
+            ids = kwargs.get("ids",get_ptc_id(data, step, num, **kwargs))
             paths = particle_series1(data, ids, ['tracked_ptc_x1', 'tracked_ptc_x2'])
             self.ptc_id_found = ids
             self.ptc_id_paths = paths
@@ -376,47 +377,45 @@ def draw_ptc_paths(name='draw_ptc_paths', **kwargs):
 
 # Register the new post-processor
 apl.apt_post_types['draw_ptc_paths'] = draw_ptc_paths
-
-def particle_series1(data, ptc_id, key):
-    '''
-    returns a 3D array with the particle ids as the first index,
-    the keys as the second index, and the steps as the third index
-    '''
-    # if isinstance(ptc_id, list) or isinstance(ptc_id, np.ndarray):
-    
-    if not isinstance(ptc_id, list) and not isinstance(ptc_id, np.ndarray):
-        ptc_id = [ptc_id]
-    elif isinstance(ptc_id, np.ndarray):
-        ptc_id = ptc_id.tolist()
-    if not isinstance(key, list):
-        key = [key]
-    # we make an array with ptc_id as first index, key as second index, 
-    # and steps as third index
-    result = np.full((len(ptc_id), len(key), len(data.ptc_steps)),np.nan)
-    times = []
-    for idx,n in enumerate(data.ptc_steps):
-        data.load(n)
-        times.append(data.time)
-        tracked_id = data.tracked_ptc_id
-        if tracked_id is None:
-            # print(f"No tracked particles found in step {n}. Skipping.")
-            continue
-    
-        for i, pid in enumerate(ptc_id):
-            if pid not in tracked_id:
-                print(f"Particle ID {pid} not found in step {n}. Skipping.")
-                continue
-            mask = tracked_id == pid
-            for j, k in enumerate(key):
-                res = data.__getattr__(k)[mask]
-                # result[i,j,n] = res[0]
-                if len(res) == 1:
-                    result[i,j,n] = res[0]
-                else:
-                    result[i,j,n] = np.nan
-    
-    return result, np.array(times)
+ 
 import numpy as np
+def particle_series1(data, ptc_id, key): 
+    ''' returns a 3D array with the particle ids as the first index, 
+    the keys as the second index, and the steps as the third index ''' 
+    # if isinstance(ptc_id, list) or isinstance(ptc_id, np.ndarray): 
+    if not isinstance(ptc_id, list) and not isinstance(ptc_id, np.ndarray): 
+        ptc_id = [ptc_id] 
+    elif isinstance(ptc_id, np.ndarray): 
+        ptc_id = ptc_id.tolist() 
+    if not isinstance(key, list): 
+        key = [key] 
+        # we make an array with ptc_id as first index, key as second index, # and steps as third index 
+    result = np.full((len(ptc_id), len(key), len(data.ptc_steps)),np.nan)
+    times = [] 
+    for idx,n in enumerate(data.ptc_steps): 
+        data.load(n) 
+        times.append(data.time) 
+        tracked_id = data.tracked_ptc_id 
+        if tracked_id is None: 
+            # print(f"No tracked particles found in step {n}. Skipping.") 
+            continue 
+        not_found_in = [] 
+        for i, pid in enumerate(ptc_id): 
+            if pid not in tracked_id: 
+                not_found_in.append(n) 
+                # print(f"Particle ID {pid} not found in step {n}. Skipping.") 
+                continue 
+            mask = tracked_id == pid 
+            for j, k in enumerate(key): 
+                res = data.__getattr__(k)[mask]
+            # result[i,j,n] = res[0] 
+                if len(res) == 1: 
+                    result[i,j,n] = res[0] 
+                else: 
+                    result[i,j,n] = np.nan 
+            
+    print(f"Particle IDs not found in some steps: {set(not_found_in)}") 
+    return result, (np.array(data.ptc_steps),np.array(times))
 
 def particle_series2(data, ptc_id, key):
     if not isinstance(ptc_id, (list, np.ndarray)):
@@ -474,7 +473,7 @@ def particle_series2(data, ptc_id, key):
         return int(index) # as its an index
 def compute_vertices(data, th_foot, tol=1e-2,):
     ## Make this work with a list of th_foot values
-    from contourpy import contour_generator
+    # from contourpy import contour_generator
     '''
       th_foot must be in radians
     '''
@@ -485,11 +484,10 @@ def compute_vertices(data, th_foot, tol=1e-2,):
     r = np.log(1) # we always start on the surface
     th_foots = np.atleast_1d(th_foot)  # Ensure th_foot is an array
     flux_list = []
-    for th_foot in th_foots:    
-        r_foot_index = convert_to_index(0,r,data)
-        theta_foot_index = convert_to_index(1,th_foot,data)
-        #Then we compute the flux at that point
-        flux_list.append(flux[theta_foot_index,r_foot_index]) # yes these seem flipped but its the way it is
+    
+    r_foot_index = convert_to_index(0,r,data)
+    theta_foot_indices = np.array([convert_to_index(1, th, data) for th in th_foots])
+    flux_list = [flux[th_ind,r_foot_index] for th_ind in theta_foot_indices]
 
     # define the field line as a contour of that flux,
     # then we extract the path of the field line as a series of vertices
@@ -501,106 +499,123 @@ def compute_vertices(data, th_foot, tol=1e-2,):
     vertices_list = []
     vertices_list = [path.vertices for path in field_line.get_paths()]
     return vertices_list
-def data_on_vertices(data, vertices, fld_val):
-    '''
-    Extracts data values at specified vertices.
+# def data_on_vertices(data, vertices, fld_val):
+#     '''
+#     Extracts data values at specified vertices.
     
-    Parameters:
-    -----------
-    data : Data object
-        The data object containing the field values.
-    vertices : array-like
-        An array of shape (N, 2) where N is the number of vertices,
-        and each vertex is represented by (x, y) coordinates.
-    fld_val : callable
-        A function that takes the data object and returns the field values.
+#     Parameters:
+#     -----------
+#     data : Data object
+#         The data object containing the field values.
+#     vertices : array-like
+#         An array of shape (N, 2) where N is the number of vertices,
+#         and each vertex is represented by (x, y) coordinates.
+#     fld_val : callable
+#         A function that takes the data object and returns the field values.
     
-    Returns:
-    --------
-    data_on_fld_line : array
-        The field values at the specified vertices.
-    '''
-    x = vertices[:,0]
-    y = vertices[:,1]
-    r = np.sqrt(x**2+y**2)
-    theta = np.pi/2-np.arctan2(y,x)
+#     Returns:
+#     --------
+#     data_on_fld_line : array
+#         The field values at the specified vertices.
+#     '''
+#     x = vertices[:,0]
+#     y = vertices[:,1]
+#     r = np.sqrt(x**2+y**2)+1e-15
+#     theta = np.pi/2-np.arctan2(y,x)
+#     # lower_r = data._conf["lower"][0]
+#     # lower_th = data._conf["lower"][1]
+#     # N_r = data._conf["N"][0]
+#     # N_th = data._conf["N"][1]
+#     # downsample = data._conf["downsample"]
+#     # size_r = data._conf["size"][0]
+#     # # print( size_r)
+#     # size_th = data._conf["size"][1]
+#     # x_indices = ( (np.log(r) - np.log(lower_r)) / (size_r/downsample) ).astype(int)
+#     # y_indices = ( (theta - lower_th) / (size_th/downsample) ).astype(int)
+#     # Vectorized index conversion
+#     x_indices = np.array([convert_to_index(0, np.log(r_val), data) for r_val in r])
+#     y_indices = np.array([convert_to_index(1, theta_val, data) for theta_val in theta])
 
-    # Vectorized index conversion
-    x_indices = np.array([convert_to_index(0, np.log(r_val), data) for r_val in r])
-    y_indices = np.array([convert_to_index(1, theta_val, data) for theta_val in theta])
-
-    # data extraction   
-    fld = fld_val(data)
-    # print(fld)
-    #clipping
-    x_indices = np.clip(x_indices, 0, fld.shape[1] - 1)
-    y_indices = np.clip(y_indices, 0, fld.shape[0] - 1)
+#     # data extraction   
+#     fld = fld_val(data)
+#     # print(fld)
+#     #clipping
+#     x_indices = np.clip(x_indices, 0, fld.shape[1] - 1).astype(int)
+#     y_indices = np.clip(y_indices, 0, fld.shape[0] - 1).astype(int)
     
-    return fld[y_indices, x_indices]
-def plot_data_fld_line(data, th_foot, fld_val,labels=None,tol=1e-2):
-    '''
-    Plots the field line for a given data object and footpoint angle.
-    Parameters:
-    -----------
-    data : Data object
-        The data object containing the field values.
-    th_foot : float or list of floats
-        The footpoint angle in radians. Can be a single value or a list of values.
-    fld_val : callable
-        A function that takes the data object and returns the field values.
-    labels : str or list of str, optional
-        Labels for the field lines. If a single string is provided, it will be used for all lines.
-    tol : float, optional
-        Tolerance for the contour extraction. Default is 1e-2.
-    Returns:
-    --------
-    func : callable
-        A function that takes an axis object and plots the field lines on it.
-    '''
-    assert callable(fld_val), "fld_val must be a lambda data: function"
-    if labels is not None and np.istype(labels, str):
-        labels = [labels]
-    vertices = compute_vertices(data, th_foot, tol)
-    fld_lines = [data_on_vertices(data, v, fld_val) for v in vertices]
-    # distances = np.concatenate(([0], np.linalg.norm(vertices[1:]-vertices[:-1],axis=1)))
-    def func(ax):
-        for i in range(len(vertices)):
-            fld_line = fld_lines[i]
-            vertex= vertices[i]
-            label = labels[i] if labels is not None else None
-            ax.scatter(vertex[:,0],vertex[:,1],c=fld_line)
-        # ax.set_title(f"th_foot = {th_foot*180/np.pi:.2f}\u00B0")
-    # c = ax.scatter(vertices[:,0],vertices[:,1],c=fld_line)
-    return func
+#     return fld[y_indices, x_indices]
+# def plot_data_fld_line(data, th_foot, fld_val,labels=None,tol=1e-2):
+#     '''
+#     Plots the field line for a given data object and footpoint angle.
+#     Parameters:
+#     -----------
+#     data : Data object
+#         The data object containing the field values.
+#     th_foot : float or list of floats
+#         The footpoint angle in radians. Can be a single value or a list of values.
+#     fld_val : callable
+#         A function that takes the data object and returns the field values.
+#     labels : str or list of str, optional
+#         Labels for the field lines. If a single string is provided, it will be used for all lines.
+#     tol : float, optional
+#         Tolerance for the contour extraction. Default is 1e-2.
+#     Returns:
+#     --------
+#     func : callable
+#         A function that takes an axis object and plots the field lines on it.
+#     '''
+#     assert callable(fld_val), "fld_val must be a lambda data: function"
+#     if labels is not None and np.istype(labels, str):
+#         labels = [labels]
+#     vertices = compute_vertices(data, th_foot, tol)
+#     fld_lines = [data_on_vertices(data, v, fld_val) for v in vertices]
+#     # distances = np.concatenate(([0], np.linalg.norm(vertices[1:]-vertices[:-1],axis=1)))
+#     def func(ax):
+#         for i in range(len(vertices)):
+#             fld_line = fld_lines[i]
+#             vertex= vertices[i]
+#             label = labels[i] if labels is not None else None
+#             ax.scatter(vertex[:,0],vertex[:,1],c=fld_line)
+#         # ax.set_title(f"th_foot = {th_foot*180/np.pi:.2f}\u00B0")
+#     # c = ax.scatter(vertices[:,0],vertices[:,1],c=fld_line)
+#     return func
 
-def Voltage_of_line(data, th_foot,vertices=False):
-    Epar = lambda data: (data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3) / np.sqrt(data.B1**2 + data.B2**2 + data.B3**2)
-    #define the field line as a contour of that flux,
-    th_foots = np.atleast_1d(th_foot)  # Ensure th_foot is an array
-    if vertices is False or vertices is None:
-        vertices = compute_vertices(data, th_foots , tol=1e-2)
-    # print("Vertices shape:", np.shape(vertices))
-    # setting up the list
-    voltages = []
-    for v in vertices:
-        # Extract the field line data at the vertices
-        fld_line = data_on_vertices(data, v, Epar)
+# def Voltage_of_line(data, th_foot,vertices=False):
+#     Epar = lambda data: (data.E1*data.B1 + data.E2*data.B2 + data.E3*data.B3) / (np.sqrt(data.B1**2 + data.B2**2 + data.B3**2)+1e-15)
+#     #define the field line as a contour of that flux,
+#     th_foots = np.atleast_1d(th_foot)  # Ensure th_foot is an array
+#     if vertices is False or vertices is None:
+#         vertices = compute_vertices(data, th_foots , tol=1e-2)
+#     # print("Vertices shape:", np.shape(vertices))
+#     # setting up the list
+#     voltages = []
+#     for th,v in zip(th_foot,vertices):
+#         try:
+#             if v is None or len(v) == 0:
+#                 print("No vertices found for footpoint at theta =", th)
+#                 voltages.append(np.nan)
+#                 continue
+#             # print("Computing voltage for footpoint at theta =", v)
+#             # Extract the field line data at the vertices
+#             fld_line = data_on_vertices(data, v, Epar)
 
-    # converting 2d positions to 1d distances
-        distances = np.concatenate(([0], np.linalg.norm(v[1:]-v[:-1],axis=1)))
-        tot_distance = np.cumsum(distances)
-    
-        integral_cumulative = np.concatenate(([0],integrate.cumulative_trapezoid(y=fld_line,x=tot_distance)))
-    # Now since we want to compute voltage up to equatorial plane we merely need to pick the first half of this
-        voltages.append(integral_cumulative[len(integral_cumulative)//2])
+#         # converting 2d positions to 1d distances
+#             distances = np.concatenate(([0], np.linalg.norm(v[1:]-v[:-1],axis=1)))
+#             tot_distance = np.cumsum(distances)
         
-    return voltages
+#             integral_cumulative = np.concatenate(([0],integrate.cumulative_trapezoid(y=fld_line,x=tot_distance)))
+#         # Now since we want to compute voltage up to equatorial plane we merely need to pick the first half of this
+#             voltages.append(integral_cumulative[len(integral_cumulative)//2])
+#         except Exception as e:
+#             print("Failed to compute voltage for footpoint at theta =", v[0,1])
+#             voltages.append(np.nan)
+#     return voltages
 def compute_voltage(args):
     data, th = args
     volt = Voltage_of_line(data, th)
     print(volt)
-    return [volt]
-def plot_Voltage_th(data,th_min,th_max,num_points,vert_lines = None,use_rmax=False):
+    return volt
+def plot_Voltage_th1(data,th_min,th_max,num_points,vert_lines = None,use_rmax=False):
     def func(ax):
         voltages = []
         thetas = []
@@ -1041,9 +1056,18 @@ def spectra(name="spectral_lineout", **kwargs):
         upper_e = data._conf['ph_flux_upper'][0]
         lower_theta = data._conf['ph_flux_lower'][1]
         upper_theta = data._conf['ph_flux_upper'][1]
+        flux_type = kwargs.get('flux_type', 'both')  # 'outflow', 'inflow', 'both'
+        if flux_type == 'outflow':
+            flux = data.resonant_ph_flux
+        elif flux_type == 'inflow':
+            flux = data.resonant_ph_flux_counter
+        elif flux_type == 'both':
+            flux = data.resonant_ph_flux + data.resonant_ph_flux_counter
+        else:
+            raise ValueError("Invalid flux_types value. Choose from 'outflow', 'inflow', 'both'.")
         #creating the meshgrid for the energy and theta values
-        X1 = np.exp(np.linspace(np.log10(lower_e), np.log10(upper_e), num=data.resonant_ph_flux.shape[3])*np.log(10))
-        Y1 = np.linspace(lower_theta*180/np.pi, upper_theta*180/np.pi, num=data.resonant_ph_flux.shape[2])
+        X1 = np.exp(np.linspace(np.log10(lower_e), np.log10(upper_e), num=flux.shape[3])*np.log(10))
+        Y1 = np.linspace(lower_theta*180/np.pi, upper_theta*180/np.pi, num=flux.shape[2])
         X1, Y1 = np.meshgrid(X1, Y1)
         # spatial grid including downsampling
         N = data._conf["N"]                # [1024, 1024]
@@ -1071,7 +1095,7 @@ def spectra(name="spectral_lineout", **kwargs):
         r2d, th2d = np.meshgrid(r, theta, indexing='ij')  # shape (N_r, N_th)
         mask = flux_tube_mask(r2d, th2d)
         mask_reshape = mask[:,:, np.newaxis, np.newaxis]  # shape (N_r, N_th, 1, 1)
-        masked_flux = np.where(mask_reshape, data.resonant_ph_flux, 0)
+        masked_flux = np.where(mask_reshape, flux, 0)
         flux_data = (1e-13+np.sum(masked_flux, axis=(0, 1))) # shape (N_e, N_th)
         # else:
         #     flux_data = (1e-13+np.sum(data.resonant_ph_flux, axis=(0, 1)))
@@ -1098,7 +1122,25 @@ def spectra(name="spectral_lineout", **kwargs):
             label = labels[i] if labels is not None else f"theta = {theta[i]:.2f}\u00B0"
             ax.plot(E_vals,E_vals*flux_at_th[i],label=label,color=colors[i])
         ax.set_yscale('log')
+        ax.legend(fontsize = kwargs.get('legend_fontsize', kwargs.get('fontsize', 10)))
         ax.set_xscale('log')
+    
+        if kwargs.get("fit_index",False):
+            fit_mask = (E_vals > kwargs.get("fit_lowE",10)) & (E_vals < kwargs.get("fit_highE",1000))
+            E_fit = E_vals[fit_mask]
+
+            for i in range(len(theta)):
+                flux_fit = flux_at_th[i][fit_mask] * E_fit
+                # Perform a linear fit in log-log space
+                log_E = np.log10(E_fit)
+                log_flux = np.log10(flux_fit)
+                def linear_model(x, logA, gamma):
+                    return logA - gamma * x
+                from scipy.optimize import curve_fit
+                popt, pcov = curve_fit(linear_model, log_E, log_flux,p0 = [np.log10(flux_fit[0]),2])
+                logA, gamma = popt
+                A_fit = 10**logA
+                ax.plot(E_fit, A_fit * E_fit**(-gamma), linestyle='--', label=rf"Fit $\theta={theta[i]:.1f}^\circ, \gamma={1-gamma:.2f}$",color =colors[i])
 
 
     return apl.apt_post(name, func, **kwargs)
@@ -1274,6 +1316,7 @@ def draw_data_fld_line(name='draw_data_fld_line', **kwargs):
     
     return apl.apt_post(name, func, **kwargs)
 apl.apt_post_types['draw_data_fld_line'] = draw_data_fld_line
+
 def draw_radial_lines(name='draw_radial_lines', **kwargs):
     def func(self, data, ax, **kwargs_inner):
         # Get thetas and optional colors/lengths
@@ -1305,3 +1348,193 @@ def draw_radial_lines(name='draw_radial_lines', **kwargs):
     return apl.apt_post(name, func, **kwargs)
 
 apl.apt_post_types['draw_radial_lines'] = draw_radial_lines
+def draw_vertical_lines(name='draw_vertical_lines', **kwargs):
+    def func(self, data, ax, **kwargs_inner):
+        # Get x-values where vertical lines should be drawn
+        x_values = kwargs_inner.get('x_values', None)
+        if x_values is None:
+            raise ValueError("Must provide 'x_values' in kwargs.")
+        
+        colors = kwargs_inner.get('colors', ["red", "blue", "green"])
+        linestyle = kwargs_inner.get('linestyle', '-')
+        linewidth = kwargs_inner.get('linewidth', 1)
+        labels = kwargs_inner.get('labels', None)
+
+        if not isinstance(x_values, (list, np.ndarray)):
+            x_values = [x_values]
+        if not isinstance(colors, (list, np.ndarray)):
+            colors = [colors]
+
+        lines = []
+        for i, x_val in enumerate(x_values):
+            color = colors[i % len(colors)]
+            label = labels[i] if labels and isinstance(labels, (list, tuple)) and i < len(labels) else None
+            line = ax.axvline(x_val, color=color, linestyle=linestyle, linewidth=linewidth, label=label)
+            lines.append(line)
+
+        return lines
+
+    return apl.apt_post(name, func, **kwargs)
+
+apl.apt_post_types['draw_vertical_lines'] = draw_vertical_lines
+
+def get_time(data,step):
+    conf = data._conf
+    return conf["dt"] * conf["fld_output_interval"] * step
+def get_closest_step(data, target_time):
+    """Return the step in data.fld_steps whose time is closest to target_time."""
+    conf = data._conf
+    times = [conf["dt"] * conf["fld_output_interval"] * s for s in data.fld_steps]
+    idx = np.argmin(np.abs(np.array(times) - target_time))
+    return data.fld_steps[idx]
+# fig,ax = plt.subplots()
+# data = N2W2
+
+def plot_ph_flux(name="plot_ph_flux", **kwargs):
+    def func(self,data, ax, **kwargs):
+        
+        from mpl_toolkits.axes_grid1 import make_axes_locatable # for colorbar
+        '''
+        Access and process the resonant photon flux data from a simulation dataset.
+        kwargs: pos_mask (function): A function that takes (r, theta) and returns a boolean mask.
+        Returns: '''
+        ## accessing pertinent config data
+        N = data._conf["N"] # number of grid cells in each dimension e.g [1024,1024]
+        lower = data._conf["lower"] # lower bounds of grid in each dimension e.g. [0,0]
+        size = data._conf["size"] # size of grid in each dimension e.g. [3.14,3.14] [log(r),theta]
+        ph_downsample = data._conf["ph_flux_downsample"] # spectral downsampling factor e.g. 16
+        N_r = N[0] // ph_downsample # number of radial grid cells in downsampled photon grid
+        N_th = N[1] // ph_downsample # number of theta grid cells in down
+
+        #constructing the spatial grid from config
+        r = np.exp(np.linspace(lower[0],lower[0]+size[0],N_r)) # radial grid
+        th = np.linspace(lower[1],lower[1]+size[1],N_th) # theta grid
+
+        # Constructing the Energy grid from config
+        lower_e = data._conf['ph_flux_lower'][0]
+        upper_e = data._conf['ph_flux_upper'][0]
+        lower_theta = data._conf['ph_flux_lower'][1]
+        upper_theta = data._conf['ph_flux_upper'][1]
+        #Meshgrid
+        X1 = np.exp(np.linspace(np.log10(lower_e), np.log10(upper_e), num=data.resonant_ph_flux.shape[3])*np.log(10))
+        Y1 = np.linspace(lower_theta*180/np.pi, upper_theta*180/np.pi, num=data.resonant_ph_flux.shape[2])
+        X1, Y1 = np.meshgrid(X1, Y1)
+
+        # The indices of resonant photon flux are (r, th, theta_observer, E)
+        # Creating the spatial downsampled meshgrid for masking purposes
+        r2d, th2d = np.meshgrid(r, th, indexing='ij')  # shape (N_r, N_th)
+        pos_mask = kwargs.get('pos_mask', lambda r, theta: np.ones_like(r, dtype=bool))# defaults to equivalent to no mask
+        mask = pos_mask(r2d, th2d)
+        mask_reshape = mask[:,:, np.newaxis, np.newaxis]  # shape (N_r, N_th, 1, 1)
+        masked_flux = np.where(mask_reshape, data.resonant_ph_flux, 0)
+        # Now considering the units of Energy
+        E_vals = X1[0,:]
+        units = kwargs.get('units', 'm_e*c^2') # default is electron mass units
+        if units == 'keV':
+            E_vals = E_vals * 511 # convert to keV  
+            lower_e = lower_e * 511
+            upper_e = upper_e * 511
+        # Now we have the option of how to look at the data, what are we summing over?
+        datatype = kwargs.get('datatype', 'spectra') # options are 'spectra', 'flux', 'both'
+        if datatype == 'spectra':
+            # Sum over r and th to get spectra at each theta_observer
+            flux_data = 1e-15+np.sum(masked_flux, axis=(0, 1)) # shape (N_e, N_th_obs
+            theta = kwargs.get('theta', [90])
+            ax.set_xlim(lower_e, upper_e)
+            ax.set_xscale('log')
+            ax.set_yscale('log')
+            if not ax.get_xlabel():
+                if units == 'm_e*c^2':
+                    ax.set_xlabel(f"Energy ($m_e c^2$)")
+                else:
+                    ax.set_xlabel(f"Energy ({units})")
+            if not ax.get_ylabel():
+                ax.set_ylabel(r"$\nu F_\nu$ (Arbitrary Unit)")
+            if not isinstance(theta, list):
+                theta = [theta]
+            theta_indices = [np.argmin(np.abs(Y1[:,0] - th)) for th in theta]
+            for i in range(len(theta_indices)):
+                ax.plot(E_vals, E_vals*flux_data[theta_indices[i],:], label=kwargs.get('labels', [f"{theta[i]}°"])[i])
+            
+        elif datatype == 'heatmap':
+            #This plots a 2d Colorplot by summing over an Energy band and picking an observer angle
+            E_band = kwargs.get('E_band', (lower_e, upper_e)) # default is full range
+            theta_obs = kwargs.get('theta_obs', 90) # default is 90 degrees
+            # operate on masked_flux to sum over E band and pick theta_obs
+            theta_index = np.argmin(np.abs(Y1[:,0] - theta_obs))
+            masked_flux_outflow = np.where(mask_reshape, data.resonant_ph_flux, 0)
+            masked_flux_inflow = np.where(mask_reshape, data.resonant_ph_flux_counter, 0)
+            flux_slice_outflow = masked_flux[:,:,theta_index,:]
+            flux_slice_inflow = masked_flux_inflow[:,:,theta_index,:]
+
+            # Build energy mask
+            E_mask = (E_vals >= E_band[0]) & (E_vals <= E_band[1])
+
+            # Sum over E axis (last one) using einsum
+            flux_band_inflow = 1e-13+np.einsum("rte->rt", flux_slice_inflow[:, :, E_mask])  # shape (N_r, N_th)
+            flux_band_outflow = 1e-13+np.einsum("rte->rt", flux_slice_outflow[:, :, E_mask])  # shape (N_r, N_th)
+            X = r2d * np.sin(th2d)
+            Y = r2d * np.cos(th2d)
+            include_colorbar = kwargs.get('include_colorbar', True)
+            vmin = kwargs.get('vmin', flux_band_outflow[flux_band_outflow>0].min())
+            vmax = kwargs.get('vmax', flux_band_outflow.max())
+            pcm_outflow = ax.pcolormesh(X, Y, flux_band_outflow.T,norm=matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax), cmap='inferno')
+            
+            pcm_inflow = ax.pcolormesh(-X, Y, flux_band_inflow.T,norm=matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax), cmap='inferno')
+            if include_colorbar is True:
+                divider = make_axes_locatable(ax)
+                orientation = "vertical"
+                cax = divider.append_axes(position="right", size="3%",pad=0.01)
+                cbar = plt.colorbar(pcm_outflow, cax=cax,orientation=orientation)
+                cbar.ax.tick_params(labelsize = kwargs.get('ctick_fontsize',kwargs.get('fontsize',12)))
+                cbar.ax.xaxis.set_ticks_position('top')   # move ticks to the top
+                cbar.ax.xaxis.set_label_position('top')   # move label to the top
+            hide_xlabel = kwargs.get('hide_xlabel', False)
+            hide_ylabel = kwargs.get('hide_ylabel', False)
+            if not hide_xlabel:
+                ax.set_xlabel("Radius (r)")
+            if not hide_ylabel:
+                ax.set_ylabel(r"$\theta$ (degrees)")
+            ax.set_aspect("equal")
+    return apl.apt_post(name, func, **kwargs)
+apl.apt_post_types["plot_ph_flux"] = plot_ph_flux
+
+
+import numpy as np
+
+def find_source_for_obs_dir(theta_obs):
+    
+    def slope_dipole(theta):
+        return (3 * np.cos(theta)**2 - 1) /(3 * np.sin(theta) * np.cos(theta))
+    
+    thetas = np.linspace(0, np.pi/2, 5000)
+    slope_thetas = slope_dipole(thetas)
+
+    theta_obs1 = np.radians(theta_obs) #For increasing theta
+    theta_obs2 = np.pi - np.radians(theta_obs) #For decreasing theta
+    theta_sol = []
+    for theta_o in [theta_obs1, theta_obs2]:
+        # Almost vertical
+        if np.abs(np.tan(theta_o)) < 1e-6:
+            return (0,np.pi/2,0,np.pi/2)
+        
+        slope = 1 / np.tan(theta_o)
+        
+        # Interpolate to get smoother root estimate
+        diffs = slope_thetas - slope
+        idx = np.where(np.diff(np.sign(diffs)))[0]
+        if len(idx) == 0:
+            raise ValueError("No solution found for the given theta_obs")
+        
+        # Linear interpolation between the two points
+        t1, t2 = thetas[idx[0]], thetas[idx[0]+1]
+        s1, s2 = diffs[idx[0]], diffs[idx[0]+1]
+        theta_sol.append(t1 - s1*(t2-t1)/(s2-s1))
+    northern_out = theta_sol[0]
+    southern_out = np.pi - theta_sol[1] 
+    northern_in = theta_sol[1]
+    southern_in = np.pi - theta_sol[0]
+    # print(f"For obs angle {theta_obs:.2f} deg, source thetas are:")
+    # print(f"  Northern Hemisphere: Outgoing {northern_out*180/np.pi:.2f} deg, Incoming {northern_in*180/np.pi:.2f} deg")
+    # print(f"  Southern Hemisphere: Outgoing {southern_out*180/np.pi:.2f} deg, Incoming {southern_in*180/np.pi:.2f} deg")
+    return (northern_out, southern_out, northern_in, southern_in)
